@@ -1,6 +1,6 @@
 import json
-import os
 import logging
+import os
 
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -11,117 +11,155 @@ logging.basicConfig(level=logging.INFO)
 
 class LLMProcessor:
     """
-    Uses Gemini to understand OCR text and generate:
-
-    1. Document type
-    2. Structured JSON
-    3. Human-readable report
+    Uses Gemini to:
+    1. Detect document type
+    2. Extract structured fields
+    3. Generate a report
     """
 
     def __init__(self):
+
         try:
+
             load_dotenv()
 
-            api_key = os.getenv("GEMINI_API_KEY")
+            api_key = os.getenv(
+                "GEMINI_API_KEY"
+            )
 
             if not api_key:
+
                 raise ValueError(
-                    "GEMINI_API_KEY not found. Please add it to your .env file."
+                    "GEMINI_API_KEY "
+                    "not found."
                 )
 
-            genai.configure(api_key=api_key)
+            genai.configure(
+                api_key=api_key
+            )
 
-            self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+            self.model_name = os.getenv(
+                "GEMINI_MODEL",
+                "gemini-2.5-flash-lite",
+            )
 
             self.model = genai.GenerativeModel(
                 model_name=self.model_name,
                 system_instruction=(
-                    "You are an expert Intelligent Document Processing assistant."
+                    "You are an expert "
+                    "Intelligent Document "
+                    "Processing assistant."
                 ),
             )
 
-            logger.info(f"LLMProcessor initialized with model '{self.model_name}'")
+            logger.info(
+                f"LLM initialized "
+                f"with {self.model_name}"
+            )
 
         except Exception as e:
-            logger.error(f"LLMProcessor initialization failed: {e}")
+
+            logger.error(
+                f"LLM initialization "
+                f"failed: {e}"
+            )
+
             raise
 
-    def process(self, ocr_text: str):
-        """
-        Sends OCR text to Gemini and returns:
-        - document_type
-        - structured_data
-        - report
-        """
+    # Normalize document type
+    def normalize_document_type(
+        self,
+        document_type,
+    ):
 
-        # Guard against empty OCR text before spending an API call on it
-        if not ocr_text or not ocr_text.strip():
-            logger.warning("process called with empty OCR text, skipping LLM call")
+        mapping = {
+            "invoice": "invoice",
+            "receipt": "receipt",
+            "aadhaar": "aadhaar",
+            "aadhaar card": "aadhaar",
+            "pan": "pan",
+            "pan card": "pan",
+            "passport": "passport",
+            "driving license": "driving_license",
+            "driving licence": "driving_license",
+            "bank statement": "bank_statement",
+        }
+
+        return mapping.get(
+            document_type.lower().strip(),
+            document_type.lower().replace(
+                " ",
+                "_",
+            ),
+        )
+
+    def process(
+        self,
+        ocr_text,
+    ):
+
+        if not ocr_text.strip():
+
             return {
-                "document_type": "Unknown",
+                "document_type": "unknown",
                 "structured_data": {},
                 "report": "",
-                "error": "Empty OCR text",
             }
 
         prompt = f"""
 You are an Intelligent Document Processing System.
 
-Your task is to analyse OCR text extracted from ANY document.
+Analyze the OCR text.
 
-The document may be:
+Your tasks:
+
+1. Detect document type.
+2. Extract ALL fields.
+3. Ignore OCR mistakes.
+4. Generate a professional report.
+
+Supported examples:
 
 - Invoice
 - Receipt
-- Passport
 - Aadhaar Card
 - PAN Card
+- Passport
 - Driving License
-- Resume
-- Medical Report
 - Bank Statement
-- Utility Bill
+- Resume
 - Certificate
 - Agreement
-- Letter
-- Identity Card
-- Marksheet
+- Utility Bill
+- Medical Report
 - Any other document
-
-Read the OCR carefully.
-
-Ignore OCR mistakes whenever possible.
-
-Understand the actual meaning.
 
 Return ONLY valid JSON.
 
-The JSON MUST follow exactly this structure:
+STRICT FORMAT:
 
 {{
-    "document_type": "...",
+    "document_type":"invoice",
 
     "structured_data":
     {{
-        "dynamic_fields": {{
-            "field_name": "value"
-        }}
+        "field_name":"value"
     }},
 
-    "report": "A professional readable summary of the complete document including every important piece of information."
+    "report":
+    "Professional summary."
 }}
 
 Rules:
 
-1. Detect the document type.
-2. Generate meaningful JSON keys.
-3. Include ALL important information.
-4. Use nested JSON whenever appropriate.
-5. Ignore OCR garbage.
-6. Missing values should be null.
-7. Do not explain anything.
-8. Do not use markdown.
-9. Return ONLY JSON.
+1. Use snake_case field names.
+2. Include ALL fields.
+3. Missing values should be null.
+4. No markdown.
+5. No explanations.
+6. Return JSON only.
+7. Keep structured_data flat.
+8. Never use dynamic_fields.
 
 OCR TEXT:
 
@@ -129,45 +167,95 @@ OCR TEXT:
 """
 
         try:
+
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.2,
-                    response_mime_type="application/json",
+                    response_mime_type=(
+                        "application/json"
+                    ),
                 ),
             )
 
-            output = response.text.strip()
+            output = (
+                response.text
+                .replace(
+                    "```json",
+                    "",
+                )
+                .replace(
+                    "```",
+                    "",
+                )
+                .strip()
+            )
 
-            # Gemini sometimes wraps JSON in markdown fences despite the instruction not to
-            output = output.replace("```json", "")
-            output = output.replace("```", "")
-            output = output.strip()
+            parsed = json.loads(
+                output
+            )
 
-            try:
-                parsed = json.loads(output)
-            except json.JSONDecodeError as parse_error:
-                # Keep the raw output for debugging instead of losing it silently
-                logger.error(f"Failed to parse Gemini JSON output: {parse_error}")
-                logger.debug(f"Raw Gemini output: {output}")
-                return {
-                    "document_type": "Unknown",
-                    "structured_data": {},
-                    "report": "",
-                    "error": f"JSON parse error: {parse_error}",
-                }
+            document_type = (
+                self.normalize_document_type(
+                    parsed.get(
+                        "document_type",
+                        "unknown",
+                    )
+                )
+            )
+
+            structured_data = (
+                parsed.get(
+                    "structured_data",
+                    {},
+                )
+            )
+
+            if not isinstance(
+                structured_data,
+                dict,
+            ):
+
+                structured_data = {}
+
+            report = parsed.get(
+                "report",
+                "",
+            )
 
             logger.info(
-                f"LLM processed OCR text: document_type="
-                f"{parsed.get('document_type', 'Unknown')}"
+                f"Detected document: "
+                f"{document_type}"
             )
-            return parsed
+
+            return {
+                "document_type":
+                document_type,
+
+                "structured_data":
+                structured_data,
+
+                "report":
+                report,
+            }
 
         except Exception as e:
-            logger.error(f"LLM generate_content call failed: {e}")
+
+            logger.error(
+                f"LLM processing "
+                f"failed: {e}"
+            )
+
             return {
-                "document_type": "Unknown",
-                "structured_data": {},
-                "report": "",
-                "error": str(e),
+                "document_type":
+                "unknown",
+
+                "structured_data":
+                {},
+
+                "report":
+                "",
+
+                "error":
+                str(e),
             }
