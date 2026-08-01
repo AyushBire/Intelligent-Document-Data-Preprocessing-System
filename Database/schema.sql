@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS documents (
     ocr_text        TEXT NOT NULL,
     report          TEXT NOT NULL,
     raw_json        TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'processed',
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
 );

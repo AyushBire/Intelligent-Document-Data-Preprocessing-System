@@ -45,14 +45,14 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    # ── Schema ────────────────────────────────────────────────────────────────
+    #  Schema
 
     def _init_db(self):
         with self._connect() as conn:
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         logger.info(f"Database initialized at {self.db_path}")
 
-    # ── Column helpers ────────────────────────────────────────────────────────
+    #  Column helpers
 
     def get_columns(self, table):
         with self._connect() as conn:
@@ -69,7 +69,7 @@ class DatabaseManager:
                         f'ALTER TABLE {table} ADD COLUMN "{field}" TEXT DEFAULT \'\''
                     )
 
-    # ── INSERT ────────────────────────────────────────────────────────────────
+    #  INSERT
 
     def save_relative_document(self, document_id, document_type, structured_data):
         table = TABLE_MAP.get(document_type.lower(), "generic_documents")
@@ -113,7 +113,7 @@ class DatabaseManager:
         logger.info(f"Saved document {document_id}")
         return document_id
 
-    # ── READ ──────────────────────────────────────────────────────────────────
+    #  READ
 
     def get_document(self, document_id):
         with self._connect() as conn:
@@ -122,9 +122,61 @@ class DatabaseManager:
             ).fetchone()
             return dict(row) if row else {}
 
-    def list_documents(self, limit=100, document_type=None, status=None):
+    def get_document_with_fields(self, document_id):
         """
-        List documents with optional filters for type and status.
+        Returns the document joined with its type-specific table row.
+        The result dict contains all columns from both tables.
+        Type-table columns (excluding 'id' and 'document_id') are
+        returned under the key 'type_fields' as an ordered dict so
+        the UI can render them as real form fields.
+        """
+        doc = self.get_document(document_id)
+        if not doc:
+            return {}
+
+        document_type = doc.get("document_type", "")
+        table = TABLE_MAP.get(document_type.lower(), "generic_documents")
+
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM {table} WHERE document_id = ?",
+                (document_id,),
+            ).fetchone()
+
+        type_fields = {}
+        if row:
+            for key in row.keys():
+                if key not in ("id", "document_id"):
+                    type_fields[key] = row[key] if row[key] is not None else ""
+
+        doc["type_fields"] = type_fields
+        doc["type_table"] = table
+        return doc
+
+    def update_type_table_fields(self, document_id: int, document_type: str, fields: dict):
+        """
+        Update the actual columns in the type-specific table for a document.
+        Adds any missing columns first (the LLM may have created extras).
+        """
+        table = TABLE_MAP.get(document_type.lower(), "generic_documents")
+        if not fields:
+            return
+
+        self.add_missing_columns(table, fields)
+
+        set_clause = ", ".join([f'"{k}" = ?' for k in fields.keys()])
+        values = list(fields.values()) + [document_id]
+
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE {table} SET {set_clause} WHERE document_id = ?",
+                values,
+            )
+        logger.info(f"Updated type fields for document {document_id} in {table}")
+
+    def list_documents(self, limit=100, document_type=None):
+        """
+        List documents with optional filter for type.
         """
         conditions = []
         params = []
@@ -133,17 +185,13 @@ class DatabaseManager:
             conditions.append("document_type = ?")
             params.append(document_type)
 
-        if status:
-            conditions.append("status = ?")
-            params.append(status)
-
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         params.append(limit)
 
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
-                SELECT id, filename, document_type, status, created_at
+                SELECT id, filename, document_type, created_at
                 FROM documents
                 {where_clause}
                 ORDER BY created_at DESC
@@ -169,7 +217,7 @@ class DatabaseManager:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, filename, document_type, status, created_at
+                SELECT id, filename, document_type, created_at
                 FROM documents
                 WHERE filename LIKE ?
                    OR document_type LIKE ?
@@ -181,7 +229,7 @@ class DatabaseManager:
             ).fetchall()
             return [dict(row) for row in rows]
 
-    # ── UPDATE ────────────────────────────────────────────────────────────────
+    #  UPDATE
 
     def confirm_document(
         self,
@@ -202,10 +250,10 @@ class DatabaseManager:
             conn.execute(
                 """
                 UPDATE documents
-                SET status = ?, updated_at = datetime('now')
+                SET updated_at = datetime('now')
                 WHERE id = ?
                 """,
-                ("confirmed" if confirmed else "rejected", document_id),
+                (document_id,),
             )
         logger.info(f"Document {document_id} {'confirmed' if confirmed else 'rejected'}.")
 
@@ -215,7 +263,6 @@ class DatabaseManager:
         document_type: str = None,
         report: str = None,
         structured_data: dict = None,
-        status: str = None,
     ):
         """
         Update editable fields of a document record.
@@ -236,10 +283,6 @@ class DatabaseManager:
             fields.append("raw_json = ?")
             values.append(json.dumps(structured_data, ensure_ascii=False))
 
-        if status is not None:
-            fields.append("status = ?")
-            values.append(status)
-
         if not fields:
             logger.warning("update_document called with nothing to update.")
             return
@@ -255,7 +298,7 @@ class DatabaseManager:
 
         logger.info(f"Updated document {document_id}: {[f.split(' =')[0] for f in fields[:-1]]}")
 
-    # ── DELETE ────────────────────────────────────────────────────────────────
+    #  DELETE
 
     def delete_document(self, document_id: int):
         """
@@ -263,13 +306,11 @@ class DatabaseManager:
         Cascades via FK if schema defines ON DELETE CASCADE,
         otherwise deletes from the type table manually first.
         """
-        # Fetch type so we can clean up the type-specific table
         doc = self.get_document(document_id)
         document_type = doc.get("document_type", "")
         table = TABLE_MAP.get(document_type.lower(), "generic_documents")
 
         with self._connect() as conn:
-            # Remove from type-specific table
             try:
                 conn.execute(
                     f"DELETE FROM {table} WHERE document_id = ?",
@@ -278,7 +319,6 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not delete from {table}: {e}")
 
-            # Remove confirmations
             try:
                 conn.execute(
                     "DELETE FROM document_confirmations WHERE document_id = ?",
@@ -287,7 +327,6 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not delete confirmations: {e}")
 
-            # Remove master record
             conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
         logger.info(f"Deleted document {document_id} from documents and {table}")
@@ -298,18 +337,12 @@ class DatabaseManager:
             self.delete_document(doc_id)
         logger.info(f"Bulk deleted {len(document_ids)} documents.")
 
-    # ── STATS ─────────────────────────────────────────────────────────────────
+    #  STATS
 
     def get_stats(self):
         """Return summary counts for the dashboard."""
         with self._connect() as conn:
             total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-            confirmed = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE status = 'confirmed'"
-            ).fetchone()[0]
-            pending = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE status = 'pending'"
-            ).fetchone()[0]
             by_type = conn.execute(
                 """
                 SELECT document_type, COUNT(*) AS cnt
@@ -320,7 +353,5 @@ class DatabaseManager:
             ).fetchall()
         return {
             "total": total,
-            "confirmed": confirmed,
-            "pending": pending,
             "by_type": [dict(r) for r in by_type],
         }
