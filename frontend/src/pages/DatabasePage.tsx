@@ -1,0 +1,273 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  listDocuments,
+  getDocument,
+  updateDocument,
+  deleteDocument,
+  getDocumentTypes,
+} from "../api/documents";
+import type { DocumentResponse, DocumentUpdate } from "../types";
+import { Search, Trash2, Pencil, Eye, X, Save, ChevronDown } from "lucide-react";
+import StatusBadge from "../components/StatusBadge";
+
+export default function DatabasePage() {
+  const qc = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [selectedDoc, setSelectedDoc] = useState<DocumentResponse | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editData, setEditData] = useState<DocumentUpdate>({});
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+
+  const { data: types = [] } = useQuery({ queryKey: ["types"], queryFn: getDocumentTypes });
+  const { data: docs = [], isLoading } = useQuery({
+    queryKey: ["documents", search, typeFilter],
+    queryFn: () =>
+      listDocuments({
+        search: search || undefined,
+        document_type: typeFilter || undefined,
+      }),
+  });
+
+  const viewMut = useMutation({
+    mutationFn: (id: number) => getDocument(id),
+    onSuccess: (doc) => { setSelectedDoc(doc); setEditMode(false); },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: DocumentUpdate }) =>
+      updateDocument(id, data),
+    onSuccess: (doc) => {
+      setSelectedDoc(doc);
+      setEditMode(false);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: deleteDocument,
+    onSuccess: () => {
+      setDeleteConfirm(null);
+      setSelectedDoc(null);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+
+  const startEdit = () => {
+    if (!selectedDoc) return;
+    setEditData({
+      document_type: selectedDoc.document_type,
+      report: selectedDoc.report,
+      structured_data: selectedDoc.structured_data,
+    });
+    setEditMode(true);
+  };
+
+  const saveEdit = () => {
+    if (!selectedDoc) return;
+    updateMut.mutate({ id: selectedDoc.id, data: editData });
+  };
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {/* Left panel — list */}
+      <div className="w-96 border-r border-[#2e3250] flex flex-col">
+        <div className="p-4 border-b border-[#2e3250] space-y-3">
+          <h1 className="text-lg font-bold text-white">Database</h1>
+
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search documents..."
+              className="w-full bg-[#242840] border border-[#2e3250] rounded-lg pl-8 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Type filter */}
+          <div className="relative">
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="w-full appearance-none bg-[#242840] border border-[#2e3250] rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">All types</option>
+              {types.map((t) => (
+                <option key={t} value={t}>{t.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          </div>
+        </div>
+
+        {/* Document list */}
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="p-4 text-slate-500 text-sm">Loading...</div>
+          ) : docs.length === 0 ? (
+            <div className="p-4 text-slate-500 text-sm">No documents found.</div>
+          ) : (
+            docs.map((doc) => (
+              <button
+                key={doc.id}
+                onClick={() => viewMut.mutate(doc.id)}
+                className={`w-full text-left px-4 py-3 border-b border-[#2e3250] hover:bg-[#242840] transition-colors ${
+                  selectedDoc?.id === doc.id ? "bg-[#242840] border-l-2 border-l-indigo-500" : ""
+                }`}
+              >
+                <p className="text-slate-200 text-sm font-medium truncate">{doc.filename}</p>
+                <div className="flex items-center justify-between mt-1">
+                  <StatusBadge value={doc.document_type} />
+                  <span className="text-slate-600 text-xs">
+                    {new Date(doc.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Right panel — detail */}
+      <div className="flex-1 overflow-y-auto">
+        {!selectedDoc ? (
+          <div className="h-full flex items-center justify-center text-slate-600">
+            <div className="text-center">
+              <Eye size={36} className="mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Select a document to view details</p>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 space-y-5">
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-white font-semibold text-lg">{selectedDoc.filename}</p>
+                <p className="text-slate-500 text-xs mt-0.5">ID #{selectedDoc.id} · {new Date(selectedDoc.created_at).toLocaleString()}</p>
+              </div>
+              <div className="flex gap-2">
+                {!editMode ? (
+                  <>
+                    <button onClick={startEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#242840] hover:bg-[#2e3250] text-slate-300 rounded-lg text-xs transition-colors">
+                      <Pencil size={13} /> Edit
+                    </button>
+                    <button onClick={() => setDeleteConfirm(selectedDoc.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs transition-colors">
+                      <Trash2 size={13} /> Delete
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={saveEdit} disabled={updateMut.isPending} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs transition-colors disabled:opacity-50">
+                      <Save size={13} /> {updateMut.isPending ? "Saving..." : "Save"}
+                    </button>
+                    <button onClick={() => setEditMode(false)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#242840] hover:bg-[#2e3250] text-slate-300 rounded-lg text-xs transition-colors">
+                      <X size={13} /> Cancel
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Document type */}
+            <Section title="Document Type">
+              {editMode ? (
+                <input
+                  value={editData.document_type ?? ""}
+                  onChange={(e) => setEditData({ ...editData, document_type: e.target.value })}
+                  className="bg-[#242840] border border-[#2e3250] rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 w-full"
+                />
+              ) : (
+                <StatusBadge value={selectedDoc.document_type} />
+              )}
+            </Section>
+
+            {/* Structured data */}
+            <Section title="Extracted Fields">
+              {editMode ? (
+                <textarea
+                  rows={10}
+                  value={JSON.stringify(editData.structured_data ?? {}, null, 2)}
+                  onChange={(e) => {
+                    try { setEditData({ ...editData, structured_data: JSON.parse(e.target.value) }); }
+                    catch { /* invalid JSON while typing */ }
+                  }}
+                  className="w-full bg-[#242840] border border-[#2e3250] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(selectedDoc.structured_data).map(([k, v]) => (
+                    <div key={k} className="bg-[#242840] rounded-lg p-3">
+                      <p className="text-slate-500 text-xs capitalize">{k.replace(/_/g, " ")}</p>
+                      <p className="text-slate-200 text-sm mt-0.5 truncate">{String(v ?? "—")}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+
+            {/* Report */}
+            <Section title="Report">
+              {editMode ? (
+                <textarea
+                  rows={5}
+                  value={editData.report ?? ""}
+                  onChange={(e) => setEditData({ ...editData, report: e.target.value })}
+                  className="w-full bg-[#242840] border border-[#2e3250] rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              ) : (
+                <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                  {selectedDoc.report || "No report generated."}
+                </p>
+              )}
+            </Section>
+
+            {/* OCR Text */}
+            <Section title="Raw OCR Text">
+              <pre className="text-slate-400 text-xs leading-relaxed whitespace-pre-wrap bg-[#242840] rounded-lg p-3 max-h-48 overflow-y-auto">
+                {selectedDoc.ocr_text || "No OCR text."}
+              </pre>
+            </Section>
+          </div>
+        )}
+      </div>
+
+      {/* Delete confirm modal */}
+      {deleteConfirm !== null && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-[#1a1d2e] border border-[#2e3250] rounded-xl p-6 w-80 space-y-4">
+            <p className="text-white font-semibold">Delete Document?</p>
+            <p className="text-slate-400 text-sm">This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => deleteMut.mutate(deleteConfirm)}
+                disabled={deleteMut.isPending}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {deleteMut.isPending ? "Deleting..." : "Delete"}
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 bg-[#242840] hover:bg-[#2e3250] text-slate-300 rounded-lg py-2 text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</p>
+      {children}
+    </div>
+  );
+}

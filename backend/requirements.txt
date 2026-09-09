@@ -1,0 +1,21 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.17
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+
+# Config
+pydantic-settings==2.6.1
+
+# Existing processing deps (already in your env)
+easyocr
+opencv-python-headless
+numpy
+google-generativeai
+python-dotenv
+
+# Dev
+httpx==0.27.2       # for testing FastAPI

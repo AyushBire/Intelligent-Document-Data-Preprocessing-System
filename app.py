@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 
-from processing.pipeline import DocumentPipeline
+from pipeline import DocumentPipeline
 from processing.database import DatabaseManager
 
 logger = logging.getLogger("app")
@@ -65,7 +65,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── document type → default seed fields shown in the Insert form ──────────────
+#  document type → default seed fields shown in the Insert form 
 TYPE_SEED_FIELDS = {
     "invoice":         ["invoice_number", "vendor_name", "invoice_date", "due_date", "total_amount", "currency", "tax_amount"],
     "receipt":         ["receipt_number", "merchant_name", "date", "total_amount", "payment_method"],
@@ -84,7 +84,7 @@ def pretty_label(key: str) -> str:
     return key.replace("_", " ").title()
 
 
-# ── Resource caching ──────────────────────────────────────────────────────────
+# Resource caching 
 @st.cache_resource
 def load_pipeline():
     return DocumentPipeline()
@@ -100,7 +100,7 @@ except Exception as e:
     st.error(f"Initialization failed: {e}")
     st.stop()
 
-# ── Sidebar navigation ────────────────────────────────────────────────────────
+#  Sidebar navigation 
 with st.sidebar:
     st.markdown("## 📄 IDPS")
     st.divider()
@@ -110,10 +110,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  PAGE 1 — PROCESS DOCUMENT
-# ══════════════════════════════════════════════════════════════════════════════
 
 if page == "🔍 Process Document":
 
@@ -218,14 +215,13 @@ if page == "🔍 Process Document":
             st.warning(f"Could not prepare downloads: {e}")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  PAGE 2 — DATABASE MANAGER
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif page == "🗄️ Database Manager":
 
     st.markdown("### 🗄️ Database Manager")
 
-    # ── Stats bar ─────────────────────────────────────────────────────────────
+    # Stats bar
     try:
         stats = db.get_stats()
         s1, s2 = st.columns(2)
@@ -252,9 +248,9 @@ elif page == "🗄️ Database Manager":
         "🗑️ Delete",
     ])
 
-    # ══════════════════════════════════════════════════════════════════════════
+ 
     #  TAB 1 — VIEW & SEARCH
-    # ══════════════════════════════════════════════════════════════════════════
+
     with db_tab1:
         f1, f2 = st.columns([2, 1])
         with f1:
@@ -298,14 +294,14 @@ elif page == "🗄️ Database Manager":
                     if not doc:
                         st.warning(f"No document with ID {int(view_id)}.")
                     else:
-                        # ── Meta row ─────────────────────────────────────────
+                        # Meta row 
                         m1, m2, m3, m4 = st.columns(4)
                         m1.markdown(f"<div class='field-label'>ID</div><div class='field-value'>{doc.get('id')}</div>", unsafe_allow_html=True)
                         m2.markdown(f"<div class='field-label'>Filename</div><div class='field-value'>{doc.get('filename')}</div>", unsafe_allow_html=True)
                         m3.markdown(f"<div class='field-label'>Type</div><div class='field-value'>{doc.get('document_type')}</div>", unsafe_allow_html=True)
                         m4.markdown(f"<div class='field-label'>Created</div><div class='field-value'>{doc.get('created_at')}</div>", unsafe_allow_html=True)
 
-                        # ── Extracted fields from the type-specific table ────
+                        # Extracted fields from the type-specific table 
                         type_fields = doc.get("type_fields", {})
                         if type_fields:
                             st.markdown("**Document Fields** _(stored in database)_")
@@ -326,9 +322,7 @@ elif page == "🗄️ Database Manager":
                 except Exception as e:
                     st.error(f"Load failed: {e}")
 
-    # ══════════════════════════════════════════════════════════════════════════
     #  TAB 2 — INSERT
-    # ══════════════════════════════════════════════════════════════════════════
     with db_tab2:
         st.markdown("Insert a document record manually. Fields are saved directly into the database.")
 
@@ -397,9 +391,7 @@ elif page == "🗄️ Database Manager":
                 except Exception as e:
                     st.error(f"Insert failed: {e}")
 
-    # ══════════════════════════════════════════════════════════════════════════
     #  TAB 3 — EDIT
-    # ══════════════════════════════════════════════════════════════════════════
     with db_tab3:
         st.markdown("Load a record by ID, edit its fields, then save back to the database.")
 
@@ -478,9 +470,8 @@ elif page == "🗄️ Database Manager":
                 except Exception as e:
                     st.error(f"Update failed: {e}")
 
-    # ══════════════════════════════════════════════════════════════════════════
     #  TAB 4 — DELETE
-    # ══════════════════════════════════════════════════════════════════════════
+    
     with db_tab4:
         st.markdown("Delete records permanently. This cannot be undone.")
 
