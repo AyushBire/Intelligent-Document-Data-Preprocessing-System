@@ -1,55 +1,68 @@
-import { NavLink } from "react-router-dom";
-import { FileSearch, Database, LayoutDashboard } from "lucide-react";
+// ✅ DashboardPage — no Sidebar import, no layout wrapper, just page content.
 import { useQuery } from "@tanstack/react-query";
 import { getStats } from "../api/documents";
 import { FileText, Upload, Tag, TrendingUp } from "lucide-react";
 
-const links = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/process", icon: FileSearch, label: "Process Document" },
-  { to: "/database", icon: Database, label: "Database" },
-];
+export default function DashboardPage() {
+  const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: getStats });
 
-export default function Sidebar() {
+  const cards = [
+    { label: "Total Documents", value: stats?.total ?? "—",            icon: FileText,   color: "text-indigo-400", bg: "bg-indigo-500/10" },
+    { label: "Document Types",  value: stats?.by_type?.length ?? "—",  icon: Tag,        color: "text-violet-400", bg: "bg-violet-500/10" },
+    { label: "Top Type",        value: stats?.by_type?.[0]?.document_type?.replace(/_/g," ") ?? "—", icon: TrendingUp, color: "text-emerald-400", bg: "bg-emerald-500/10" },
+    { label: "Uploaded Today",  value: 7,                              icon: Upload,     color: "text-amber-400",  bg: "bg-amber-500/10"  },
+  ];
+
   return (
-    <aside className="w-56 min-h-screen bg-[#1a1d2e] border-r border-[#2e3250] flex flex-col">
-      <div className="px-5 py-6 border-b border-[#2e3250]">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center">
-            <FileSearch size={14} className="text-white" />
+    <div className="p-8 max-w-4xl mx-auto space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
+        <p className="text-slate-400 text-sm mt-1">Overview of your document processing activity</p>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {cards.map(({ label, value, icon: Icon, color, bg }) => (
+          <div key={label} className="bg-[#1a1d2e] border border-[#2e3250] rounded-xl p-5 space-y-3">
+            <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
+              <Icon size={16} className={color} />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white leading-none">{value}</p>
+              <p className="text-slate-500 text-xs mt-1">{label}</p>
+            </div>
           </div>
-          <span className="font-semibold text-white text-sm tracking-wide">
-            IDPS
-          </span>
-        </div>
-        <p className="text-[11px] text-slate-500 mt-1 ml-9">
-          Document Processing
-        </p>
-      </div>
-
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {links.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
-            className={({ isActive }: { isActive: boolean }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                isActive
-                  ? "bg-indigo-500/20 text-indigo-400 font-medium"
-                  : "text-slate-400 hover:bg-[#242840] hover:text-slate-200"
-              }`
-            }
-          >
-            <Icon size={16} />
-            {label}
-          </NavLink>
         ))}
-      </nav>
-
-      <div className="px-5 py-4 border-t border-[#2e3250]">
-        <p className="text-[11px] text-slate-600">v1.0.0</p>
       </div>
-    </aside>
+
+      {/* Type breakdown */}
+      {stats?.by_type && stats.by_type.length > 0 && (
+        <div className="bg-[#1a1d2e] border border-[#2e3250] rounded-xl p-6">
+          <p className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Tag size={14} className="text-slate-500" /> By Document Type
+          </p>
+          <div className="space-y-4">
+            {stats.by_type.map(({ document_type, count }: { document_type: string; count: number }) => {
+              const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
+              return (
+                <div key={document_type}>
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span className="text-slate-300 capitalize">{document_type.replace(/_/g, " ")}</span>
+                    <span className="text-slate-500 text-xs">{count} · {pct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-[#242840] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

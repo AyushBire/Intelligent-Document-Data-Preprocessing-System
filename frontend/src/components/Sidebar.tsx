@@ -7,6 +7,7 @@ const links = [
   { to: "/database", icon: Database, label: "Database" },
 ];
 
+// ✅ This is the ONE sidebar. Rendered only in App.tsx.
 export default function Sidebar() {
   return (
     <aside className="w-56 min-h-screen bg-[#1a1d2e] border-r border-[#2e3250] flex flex-col">
