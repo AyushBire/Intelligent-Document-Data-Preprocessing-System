@@ -51,7 +51,7 @@ def connect(origin: str) -> None:
     credentials_path.write_text(f"Username: {username}\nPassword: {password}\n\nKeep this file private. Do not commit or share it.\n", encoding="utf-8")
     print("Protected backend verified; Vercel proxy configuration updated.")
     print("Login credentials: .validation/presentation-login.txt (ignored by Git)")
-    print("Push frontend/vercel.json to redeploy, then visit /api/login on the Vercel site before opening the dashboard.")
+    print("Push frontend/vercel.json to redeploy, then visit /signin on the Vercel site.")
 
 
 def main() -> None:

@@ -21,7 +21,7 @@ def test_presentation_login_protects_data_and_accepts_valid_credentials():
         assert client.get("/health/ready").status_code == 401
         response = client.get("/api/documents")
         assert response.status_code == 401
-        assert response.headers["WWW-Authenticate"].startswith("Basic")
+        assert "WWW-Authenticate" not in response.headers
         assert client.get("/api/documents", auth=("presenter", "wrong")).status_code == 401
         assert client.get("/api/documents", headers={"Authorization": "Basic !!!"}).status_code == 401
         assert client.get("/api/documents", auth=("presenter", "test-password")).status_code == 200

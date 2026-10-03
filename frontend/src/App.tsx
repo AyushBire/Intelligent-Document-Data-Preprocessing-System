@@ -26,6 +26,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ExtractPage from "./pages/ExtractPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import DocumentPage from "./pages/DocumentPage";
+import SignInPage, { RequireSession, SignOutButton } from "./pages/SignInPage";
 import { Modal } from "./components/ui";
 
 const queryClient = new QueryClient({
@@ -134,6 +135,7 @@ function AppShell() {
             Start an extraction <ArrowUpRight size={16} />
           </Link>
         </div>
+        <SignOutButton />
         <div className="sidebar-footer">
           <span className="avatar">W</span>
           <div>
@@ -222,7 +224,7 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AppShell />
+          <Routes><Route path="/signin" element={<SignInPage />} /><Route path="*" element={<RequireSession><AppShell /></RequireSession>} /></Routes>
         </BrowserRouter>
       </QueryClientProvider>
     </ErrorBoundary>

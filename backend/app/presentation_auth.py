@@ -11,13 +11,14 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 class PresentationAuthMiddleware:
     """Authenticate HTTP and WebSocket requests without buffering uploaded images."""
 
-    def __init__(self, app: ASGIApp, username: str, password: str) -> None:
+    def __init__(self, app: ASGIApp, username: str, password: str, session_check=None) -> None:
         """Store fixed-length credential digests.
 
         Args: app: Wrapped application; username: Login name; password: Login secret.
         Returns: None. Raises: None.
         """
         self.app = app
+        self.session_check = session_check
         self.username = hashlib.sha256(username.encode()).digest()
         self.password = hashlib.sha256(password.encode()).digest()
 
@@ -44,6 +45,12 @@ class PresentationAuthMiddleware:
         Args: scope: Request scope; receive: Incoming events; send: Outgoing events.
         Returns: None. Raises: Downstream application errors.
         """
+        if self.session_check and self.session_check(scope):
+            await self.app(scope, receive, send)
+            return
+        if scope.get("path") in {"/api/auth/session", "/api/auth/login", "/api/auth/logout"}:
+            await self.app(scope, receive, send)
+            return
         if scope["type"] not in {"http", "websocket"} or (
             scope["type"] == "http" and scope.get("method") == "GET" and scope.get("path") == "/health"
         ) or self.authorized(scope):
@@ -53,5 +60,5 @@ class PresentationAuthMiddleware:
             await send({"type": "websocket.close", "code": 1008})
             return
         response = JSONResponse({"detail": "Presentation login required"}, status_code=401,
-                                headers={"WWW-Authenticate": 'Basic realm="IDPS", charset="UTF-8"', "Cache-Control": "no-store"})
+                                headers={"Cache-Control": "no-store"})
         await response(scope, receive, send)

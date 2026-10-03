@@ -11,6 +11,7 @@ from app.api.ws import router as ws_router
 from app.config import get_settings
 from app.db import Base, engine
 from app.presentation_auth import PresentationAuthMiddleware
+from app.api.auth import auth_router
 from app.services.pipeline_service import preload_pipeline
 
 # Configure logging ONCE, here. Do not call basicConfig in other modules.
@@ -59,9 +60,12 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 
-if settings.PRESENTATION_AUTH_ENABLED:
+credential_check = PresentationAuthMiddleware(app, settings.PRESENTATION_USERNAME, settings.PRESENTATION_PASSWORD.get_secret_value()) if settings.PRESENTATION_AUTH_ENABLED else None
+session_router = auth_router(credential_check)
+app.include_router(session_router)
+if credential_check:
     app.add_middleware(PresentationAuthMiddleware, username=settings.PRESENTATION_USERNAME,
-                       password=settings.PRESENTATION_PASSWORD.get_secret_value())
+                       password=settings.PRESENTATION_PASSWORD.get_secret_value(), session_check=session_router.authenticated)
 
 app.include_router(health_router)
 app.include_router(documents_router, prefix="/api")

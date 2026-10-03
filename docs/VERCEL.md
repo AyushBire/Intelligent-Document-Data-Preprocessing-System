@@ -26,3 +26,5 @@ The backend must retain access controls. With the existing nginx Basic Authentic
 5. Confirm an unauthenticated API request cannot read documents.
 
 Keep all database data, upload files and Gemini credentials on the backend host. The Vercel project only needs frontend source/build files. A frontend deployment can be created before backend hosting, but it must be reported as incomplete until the end-to-end checks pass.
+
+Browser access uses the dedicated `/signin` page. Use the existing credentials in the ignored `.validation/presentation-login.txt` file. Sessions last eight hours or until backend restart. Sign out revokes the session. Credentials are never stored in browser local storage. Keep the backend and tunnel running for the presentation.

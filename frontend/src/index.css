@@ -1604,3 +1604,15 @@ dialog > p {
     }
   }
 }
+
+.signin-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at top, #e8edff, #f6f8fc 65%); }
+.signin-card { width: min(100%, 440px); padding: 36px; background: white; border: 1px solid #e2e8f0; border-radius: 20px; box-shadow: 0 20px 70px #25304712; }
+.signin-card .brand { margin-bottom: 32px; }
+.signin-card h1 { font-size: 25px; }
+.signin-card p, .signin-card > small { color: #64748b; }
+.signin-card form { display: grid; gap: 10px; margin: 24px 0; }
+.signin-card input { padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.signin-card label:not(:first-child) { margin-top: 10px; }
+.signin-card button { width: 100%; margin-top: 12px; justify-content: center; }
+.signin-card [role=alert] { color: #b91c1c; }
+@media(max-width:480px) { .signin-card { padding: 24px; } }
