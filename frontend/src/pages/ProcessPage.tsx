@@ -18,40 +18,38 @@ import { uploadDocument, getJobStatus, getDocument } from "../api/documents";
 type Stage = "idle" | "uploading" | "processing" | "done" | "error";
 
 // ── Persisted job tracking ──────────────────────────────────────────────
-// Keeps the in-flight job alive across route changes AND full page
-// refreshes. Job state used to live only in this component's useState,
-// which gets wiped the instant it unmounts (e.g. navigating to Dashboard
-// mid-upload).
-const STORAGE_KEY = "idps_active_job";
+const ACTIVE_JOB_KEY = "idps_active_job";
+const DONE_STATE_KEY = "idps_done_state";
 
 interface StoredJob {
   job_id: string;
   filename: string;
 }
 
+interface StoredDoneState {
+  job: JobStatus;
+  document: DocumentResponse | null;
+  filename: string;
+}
+
 function saveActiveJob(job: StoredJob) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(job));
-  } catch {
-    // localStorage can fail (private browsing, quota) — non-fatal.
-  }
+  try { localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(job)); } catch { /* ignore */ }
 }
-
 function loadActiveJob(): StoredJob | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as StoredJob) : null;
-  } catch {
-    return null;
-  }
+  try { const r = localStorage.getItem(ACTIVE_JOB_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function clearActiveJob() {
+  try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch { /* ignore */ }
 }
 
-function clearActiveJob() {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // ignore
-  }
+function saveDoneState(state: StoredDoneState) {
+  try { localStorage.setItem(DONE_STATE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+}
+function loadDoneState(): StoredDoneState | null {
+  try { const r = localStorage.getItem(DONE_STATE_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function clearDoneState() {
+  try { localStorage.removeItem(DONE_STATE_KEY); } catch { /* ignore */ }
 }
 
 function downloadBlob(content: string, filename: string, mime: string) {
@@ -86,9 +84,6 @@ export default function ProcessPage() {
     if (pollRef.current) clearInterval(pollRef.current);
   };
 
-  // Dashboard/Database show live document counts — refresh their cached
-  // data as soon as a new document lands, so switching to those pages
-  // never shows stale numbers.
   const refreshAppData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["stats"] });
     queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -96,22 +91,25 @@ export default function ProcessPage() {
   }, [queryClient]);
 
   const finishJob = useCallback(
-    async (finishedJob: JobStatus) => {
+    async (finishedJob: JobStatus, fname: string) => {
       refreshAppData();
+      let doc: DocumentResponse | null = null;
       if (finishedJob.document_id != null) {
         try {
-          const doc = await getDocument(finishedJob.document_id);
+          doc = await getDocument(finishedJob.document_id);
           setDocumentDetail(doc);
         } catch {
-          // Non-fatal — the done panel still shows without download options.
+          // Non-fatal
         }
       }
+      // Persist done state so it survives navigation
+      saveDoneState({ job: finishedJob, document: doc, filename: fname });
     },
     [refreshAppData]
   );
 
   const pollJob = useCallback(
-    (jobId: string) => {
+    (jobId: string, fname: string) => {
       pollRef.current = setInterval(async () => {
         try {
           const status = await getJobStatus(jobId);
@@ -120,7 +118,7 @@ export default function ProcessPage() {
             stopPolling();
             clearActiveJob();
             setStage("done");
-            await finishJob(status);
+            await finishJob(status, fname);
           } else if (status.status === "error") {
             stopPolling();
             clearActiveJob();
@@ -138,8 +136,19 @@ export default function ProcessPage() {
     [finishJob]
   );
 
-  // ── Resume an in-flight job on mount ──────────────────────────────────
+  // ── On mount: restore done state OR resume in-flight job ──────────────
   useEffect(() => {
+    // Check for a persisted done state first — user navigated away and came back
+    const done = loadDoneState();
+    if (done) {
+      setStage("done");
+      setFileName(done.filename);
+      setJob(done.job);
+      setDocumentDetail(done.document);
+      return;
+    }
+
+    // Otherwise check for an in-flight job
     const stored = loadActiveJob();
     if (!stored) return;
 
@@ -156,25 +165,21 @@ export default function ProcessPage() {
         if (status.status === "done") {
           clearActiveJob();
           setStage("done");
-          await finishJob(status);
+          await finishJob(status, stored.filename);
         } else if (status.status === "error") {
           clearActiveJob();
           setStage("error");
           setError(status.error ?? "Processing failed");
         } else {
           setStage("processing");
-          pollJob(stored.job_id);
+          pollJob(stored.job_id, stored.filename);
         }
       } catch {
-        // Job no longer exists server-side (in-memory job store, server
-        // may have restarted) — nothing to resume.
         clearActiveJob();
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -185,12 +190,13 @@ export default function ProcessPage() {
       setError("");
       setJob(null);
       setDocumentDetail(null);
+      clearDoneState();
       try {
         const res = await uploadDocument(f);
         setStage("processing");
         setJob({ job_id: res.job_id, status: "pending", stage: "", progress: 0 });
         saveActiveJob({ job_id: res.job_id, filename: f.name });
-        pollJob(res.job_id);
+        pollJob(res.job_id, f.name);
       } catch (e: unknown) {
         setStage("error");
         setError(e instanceof Error ? e.message : "Upload failed");
@@ -209,9 +215,11 @@ export default function ProcessPage() {
     [handleFile]
   );
 
+  // Reset clears everything including the persisted done state
   const reset = () => {
     stopPolling();
     clearActiveJob();
+    clearDoneState();
     setStage("idle");
     setFileName("");
     setJob(null);
@@ -229,7 +237,7 @@ export default function ProcessPage() {
   };
 
   const handleDownloadReport = () => {
-    if (!documentDetail || !documentDetail.report) return;
+    if (!documentDetail?.report) return;
     downloadBlob(
       documentDetail.report,
       `${baseName(documentDetail.filename)}_report.txt`,
@@ -252,29 +260,22 @@ export default function ProcessPage() {
       {stage === "idle" && (
         <div
           onDrop={onDrop}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onClick={() => inputRef.current?.click()}
           role="button"
           tabIndex={0}
           aria-label="Upload a document. Drop a file here or activate to browse."
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              inputRef.current?.click();
-            }
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputRef.current?.click(); }
           }}
           className={`
             relative border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer
             transition-colors duration-200
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0d14]
-            ${
-              dragOver
-                ? "border-indigo-400 bg-indigo-500/10"
-                : "border-[#2e3250] hover:border-indigo-500/40 hover:bg-[#1a1d2e]/60"
+            ${dragOver
+              ? "border-indigo-400 bg-indigo-500/10"
+              : "border-[#2e3250] hover:border-indigo-500/40 hover:bg-[#1a1d2e]/60"
             }
           `}
         >
@@ -287,24 +288,16 @@ export default function ProcessPage() {
             tabIndex={-1}
             onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
           />
-          <div
-            className={`w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center transition-colors ${
-              dragOver ? "bg-indigo-500/20" : "bg-[#1e2135]"
-            }`}
-          >
+          <div className={`w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center transition-colors ${dragOver ? "bg-indigo-500/20" : "bg-[#1e2135]"}`}>
             <Upload size={28} className={dragOver ? "text-indigo-400" : "text-slate-500"} />
           </div>
           <p className="text-white font-semibold text-base">
             {dragOver ? "Drop to upload" : "Drop a file here or click to browse"}
           </p>
           <p className="text-slate-500 text-sm mt-2">JPG, PNG, BMP, TIFF, PDF — max 20 MB</p>
-
           <div className="flex items-center justify-center gap-2 mt-6 flex-wrap">
             {["JPG", "PNG", "BMP", "TIFF", "PDF"].map((fmt) => (
-              <span
-                key={fmt}
-                className="px-2.5 py-1 bg-[#1e2135] border border-[#2e3250] rounded-md text-xs text-slate-500 font-mono"
-              >
+              <span key={fmt} className="px-2.5 py-1 bg-[#1e2135] border border-[#2e3250] rounded-md text-xs text-slate-500 font-mono">
                 {fmt}
               </span>
             ))}
@@ -314,11 +307,7 @@ export default function ProcessPage() {
 
       {/* ── Uploading ── */}
       {stage === "uploading" && (
-        <div
-          className="bg-[#141726] border border-[#2e3250] rounded-2xl p-10 text-center space-y-4"
-          role="status"
-          aria-live="polite"
-        >
+        <div className="bg-[#141726] border border-[#2e3250] rounded-2xl p-10 text-center space-y-4" role="status" aria-live="polite">
           <div className="w-12 h-12 mx-auto relative" aria-hidden="true">
             <div className="absolute inset-0 rounded-full border-2 border-[#2e3250]" />
             <div className="absolute inset-0 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
@@ -332,11 +321,7 @@ export default function ProcessPage() {
 
       {/* ── Processing ── */}
       {stage === "processing" && job && (
-        <div
-          className="bg-[#141726] border border-[#2e3250] rounded-2xl p-8 space-y-6"
-          role="status"
-          aria-live="polite"
-        >
+        <div className="bg-[#141726] border border-[#2e3250] rounded-2xl p-8 space-y-6" role="status" aria-live="polite">
           <div className="flex items-center gap-3 pb-4 border-b border-[#2e3250]">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
               <FileText size={16} className="text-indigo-400" aria-hidden="true" />
@@ -348,18 +333,14 @@ export default function ProcessPage() {
           </div>
           <ProgressBar progress={job.progress} stage={job.stage} status={job.status} />
           <p className="text-slate-600 text-xs text-center">
-            This may take 15–30 seconds. It's safe to switch tabs — progress resumes when you
-            come back.
+            This may take 15–30 seconds. It's safe to switch tabs — progress resumes when you come back.
           </p>
         </div>
       )}
 
       {/* ── Error ── */}
       {stage === "error" && (
-        <div
-          className="bg-[#141726] border border-red-500/20 rounded-2xl p-10 text-center space-y-5"
-          role="alert"
-        >
+        <div className="bg-[#141726] border border-red-500/20 rounded-2xl p-10 text-center space-y-5" role="alert">
           <div className="w-14 h-14 rounded-2xl bg-red-500/10 mx-auto flex items-center justify-center">
             <AlertCircle size={28} className="text-red-400" aria-hidden="true" />
           </div>
@@ -378,17 +359,14 @@ export default function ProcessPage() {
 
       {/* ── Done ── */}
       {stage === "done" && job && (
-        <div
-          className="bg-[#141726] border border-emerald-500/20 rounded-2xl p-8 space-y-6"
-          role="status"
-        >
+        <div className="bg-[#141726] border border-emerald-500/20 rounded-2xl p-8 space-y-6" role="status">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
               <CheckCircle size={18} className="text-emerald-400" aria-hidden="true" />
             </div>
             <div>
               <p className="text-white font-semibold text-sm">Processing complete</p>
-              <p className="text-slate-500 text-xs mt-0.5">Document is ready to view</p>
+              <p className="text-slate-500 text-xs mt-0.5 truncate max-w-xs">{fileName}</p>
             </div>
           </div>
 
@@ -403,8 +381,7 @@ export default function ProcessPage() {
             </div>
           </div>
 
-          {/* Download options — the extracted data belongs to the user the
-              moment it's produced, independent of the database view. */}
+          {/* Download section */}
           <div className="border border-teal-500/20 bg-teal-500/5 rounded-xl p-4 space-y-3">
             <p className="text-teal-300 text-xs font-medium flex items-center gap-1.5">
               <FileJson size={13} aria-hidden="true" /> Download extracted data

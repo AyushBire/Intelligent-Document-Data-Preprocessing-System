@@ -1,4 +1,4 @@
-# Web framework
+# Web
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 python-multipart==0.0.17
@@ -6,16 +6,15 @@ python-multipart==0.0.17
 # Database
 sqlalchemy==2.0.36
 alembic==1.14.0
+aiosqlite==0.20.0        # SQLite (dev)
+asyncpg==0.30.0          # PostgreSQL (prod)
 
 # Config
 pydantic-settings==2.6.1
+python-dotenv==1.0.1
 
-# Existing processing deps (already in your env)
-easyocr
-opencv-python-headless
-numpy
-google-generativeai
-python-dotenv
-
-# Dev
-httpx==0.27.2       # for testing FastAPI
+# Processing (torch/torchvision are installed separately as CPU wheels in the Dockerfile)
+easyocr==1.7.2
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+google-generativeai==0.8.3

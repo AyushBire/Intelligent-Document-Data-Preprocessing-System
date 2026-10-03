@@ -1,6 +1,5 @@
-import json
 import logging
-import shutil
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
@@ -8,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.ws import broadcast_job
 from app.config import get_settings
-from app.db import get_db
+from app.db import AsyncSessionLocal, get_db
+from app.models.document import Document
 from app.schemas.document import (
     ConfirmationCreate,
     ConfirmationResponse,
+    DocumentCreate,
     DocumentListItem,
     DocumentResponse,
     DocumentUpdate,
@@ -25,6 +26,36 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 logger = logging.getLogger("api.documents")
 settings = get_settings()
 
+# Trust file CONTENT, not the client-supplied Content-Type header.
+_SIGNATURES: list[tuple[bytes, str]] = [
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"BM", ".bmp"),
+    (b"II*\x00", ".tiff"),
+    (b"MM\x00*", ".tiff"),
+]
+
+
+def _detect_ext(head: bytes) -> str | None:
+    for signature, ext in _SIGNATURES:
+        if head.startswith(signature):
+            return ext
+    return None
+
+
+def _to_response(doc: Document) -> DocumentResponse:
+    # raw_json (str) is parsed into structured_data by the schema validator
+    return DocumentResponse(
+        id=doc.id,
+        filename=doc.filename,
+        document_type=doc.document_type,
+        ocr_text=doc.ocr_text,
+        report=doc.report,
+        structured_data=doc.raw_json,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+    )
+
 
 # ── Upload & process ───────────────────────────────────────────────────────────
 
@@ -32,50 +63,58 @@ settings = get_settings()
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
 ):
     """
-    Accept a document image, save it to disk, and kick off the pipeline
-    as a background task. Returns a job_id immediately so the client can
-    track progress via GET /jobs/{job_id} or the WebSocket.
+    Accept a document image, store it under a generated name, and start the
+    pipeline in the background. Returns a job_id to poll / subscribe to.
     """
-    # Validate file type
-    allowed = {"image/jpeg", "image/png", "image/bmp", "image/tiff", "application/pdf"}
-    if file.content_type not in allowed:
-        raise HTTPException(status_code=415, detail=f"Unsupported file type: {file.content_type}")
-
-    # Validate size
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
-    contents = await file.read()
-    if len(contents) > max_bytes:
+
+    # Read in chunks and abort as soon as the limit is exceeded
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Max {settings.MAX_UPLOAD_SIZE_MB} MB.",
+            )
+        chunks.append(chunk)
+    contents = b"".join(chunks)
+
+    ext = _detect_ext(contents[:16])
+    if ext is None:
         raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Max {settings.MAX_UPLOAD_SIZE_MB} MB.",
+            status_code=415,
+            detail="Unsupported file type. Upload a JPG, PNG, BMP or TIFF image.",
         )
 
-    # Save to uploads/
+    # The original name is only a display label; never used as a path
+    original_name = Path(file.filename or f"upload{ext}").name[:255]
+
     upload_dir = Path(settings.UPLOAD_DIR)
-    upload_dir.mkdir(exist_ok=True)
-    dest = upload_dir / file.filename
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / f"{uuid.uuid4().hex}{ext}"
     dest.write_bytes(contents)
 
-    # Create job and start background task
     job_id = create_job()
 
-    async def _save_to_db(result: dict, filename: str, file_path: str) -> int:
-        from app.schemas.document import DocumentCreate
-        doc = await svc.create_document(
-            db,
-            DocumentCreate(
-                filename=filename,
-                file_path=file_path,
-                document_type=result["document_type"],
-                ocr_text=result["ocr_text"],
-                report=result["report"],
-                structured_data=result["structured_data"],
-            ),
-        )
-        return doc.id
+    async def _save_to_db(result: dict, _stored_name: str, file_path: str) -> int:
+        # Own session: the request-scoped one is closed once the response is sent
+        async with AsyncSessionLocal() as session:
+            doc = await svc.create_document(
+                session,
+                DocumentCreate(
+                    filename=original_name,
+                    file_path=file_path,
+                    document_type=result["document_type"],
+                    ocr_text=result["ocr_text"],
+                    report=result["report"],
+                    structured_data=result["structured_data"],
+                ),
+            )
+            return doc.id
 
     async def _notify(job: JobStatus):
         await broadcast_job(job_id, job.model_dump())
@@ -88,7 +127,7 @@ async def upload_document(
         notify=_notify,
     )
 
-    return {"job_id": job_id, "filename": file.filename}
+    return {"job_id": job_id, "filename": original_name}
 
 
 # ── Job status (polling fallback) ──────────────────────────────────────────────
@@ -112,10 +151,8 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
 ):
     if search:
-        docs = await svc.search_documents(db, search, limit=limit)
-    else:
-        docs = await svc.list_documents(db, document_type=document_type, limit=limit, offset=offset)
-    return docs
+        return await svc.search_documents(db, search, limit=limit)
+    return await svc.list_documents(db, document_type=document_type, limit=limit, offset=offset)
 
 
 @router.get("/types", response_model=list[str])
@@ -133,15 +170,7 @@ async def get_document(document_id: int, db: AsyncSession = Depends(get_db)):
     doc = await svc.get_document(db, document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-
-    # Build response — structured_data from raw_json
-    data = doc.__dict__.copy()
-    try:
-        data["structured_data"] = json.loads(doc.raw_json)
-    except Exception:
-        data["structured_data"] = {}
-
-    return DocumentResponse(**data)
+    return _to_response(doc)
 
 
 @router.patch("/{document_id}", response_model=DocumentResponse)
@@ -153,30 +182,28 @@ async def update_document(
     doc = await svc.update_document(db, document_id, body)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-
-    data = doc.__dict__.copy()
-    try:
-        data["structured_data"] = json.loads(doc.raw_json)
-    except Exception:
-        data["structured_data"] = {}
-
-    return DocumentResponse(**data)
+    return _to_response(doc)
 
 
 @router.delete("/{document_id}", status_code=204)
 async def delete_document(document_id: int, db: AsyncSession = Depends(get_db)):
-    deleted = await svc.delete_document(db, document_id)
-    if not deleted:
+    file_path = await svc.delete_document(db, document_id)
+    if file_path is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    # Remove the stored upload too — no orphaned PII on disk
+    if file_path:
+        Path(file_path).unlink(missing_ok=True)
 
 
 @router.delete("", status_code=204)
 async def bulk_delete(
-    ids: list[int] = Query(...),
+    ids: list[int] = Query(..., max_length=100),
     db: AsyncSession = Depends(get_db),
 ):
     for doc_id in ids:
-        await svc.delete_document(db, doc_id)
+        file_path = await svc.delete_document(db, doc_id)
+        if file_path:
+            Path(file_path).unlink(missing_ok=True)
 
 
 # ── Confirmations ──────────────────────────────────────────────────────────────

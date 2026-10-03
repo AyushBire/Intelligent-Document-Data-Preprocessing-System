@@ -44,3 +44,5 @@ async def job_progress(websocket: WebSocket, job_id: str):
         conns = _connections.get(job_id, [])
         if websocket in conns:
             conns.remove(websocket)
+        if not conns:
+            _connections.pop(job_id, None)

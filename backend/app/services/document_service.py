@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy import func, select, or_
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import (
@@ -27,7 +27,7 @@ from app.schemas.document import (
 
 logger = logging.getLogger("document_service")
 
-# Map document_type string → child table model
+# document_type string → child table model
 TYPE_MODEL_MAP: dict[str, Any] = {
     "invoice": Invoice,
     "receipt": Receipt,
@@ -41,7 +41,7 @@ TYPE_MODEL_MAP: dict[str, Any] = {
     "bank_statement": BankStatement,
 }
 
-# Map document_type → primary identifier column name on child table
+# document_type → identifier column on the child table
 TYPE_ID_FIELD: dict[str, str] = {
     "invoice": "invoice_number",
     "receipt": "receipt_number",
@@ -54,6 +54,15 @@ TYPE_ID_FIELD: dict[str, str] = {
     "driving_licence": "license_number",
     "bank_statement": "account_number",
 }
+
+ALL_CHILD_MODELS = (
+    Invoice, Receipt, AadhaarCard, PanCard, Passport,
+    DrivingLicense, BankStatement, GenericDocument,
+)
+
+
+def _normalize_type(document_type: str) -> str:
+    return document_type.strip().lower().replace(" ", "_")
 
 
 async def create_document(db: AsyncSession, data: DocumentCreate) -> Document:
@@ -68,7 +77,7 @@ async def create_document(db: AsyncSession, data: DocumentCreate) -> Document:
         raw_json=raw_json,
     )
     db.add(doc)
-    await db.flush()  # get doc.id before inserting child row
+    await db.flush()  # get doc.id before inserting the child row
 
     _attach_child(db, doc.id, data.document_type, data.structured_data)
 
@@ -85,16 +94,17 @@ def _attach_child(
     structured_data: dict,
 ) -> None:
     """Insert the type-specific child row."""
-    dtype = document_type.lower().strip()
-    model = TYPE_MODEL_MAP.get(dtype, None)
+    dtype = _normalize_type(document_type)
+    model = TYPE_MODEL_MAP.get(dtype)
     id_field = TYPE_ID_FIELD.get(dtype)
 
     if model is None:
         child = GenericDocument(document_id=document_id)
     else:
-        kwargs = {"document_id": document_id}
+        kwargs: dict[str, Any] = {"document_id": document_id}
         if id_field:
-            kwargs[id_field] = structured_data.get(id_field, "")
+            value = structured_data.get(id_field, "")
+            kwargs[id_field] = "" if value is None else str(value)
         child = model(**kwargs)
 
     db.add(child)
@@ -149,12 +159,30 @@ async def update_document(
     if not doc:
         return None
 
+    resync_child = False
+
     if data.document_type is not None:
-        doc.document_type = data.document_type
+        doc.document_type = _normalize_type(data.document_type)
+        resync_child = True
     if data.report is not None:
         doc.report = data.report
     if data.structured_data is not None:
         doc.raw_json = json.dumps(data.structured_data, ensure_ascii=False)
+        resync_child = True
+
+    if resync_child:
+        # Keep the type-specific table consistent with the edited type / fields
+        for model in ALL_CHILD_MODELS:
+            await db.execute(
+                delete(model)
+                .where(model.document_id == doc.id)
+                .execution_options(synchronize_session=False)
+            )
+        try:
+            structured = json.loads(doc.raw_json)
+        except Exception:
+            structured = {}
+        _attach_child(db, doc.id, doc.document_type, structured if isinstance(structured, dict) else {})
 
     await db.commit()
     await db.refresh(doc)
@@ -162,14 +190,17 @@ async def update_document(
     return doc
 
 
-async def delete_document(db: AsyncSession, document_id: int) -> bool:
+async def delete_document(db: AsyncSession, document_id: int) -> str | None:
+    """Delete a document. Returns its stored file_path (so the caller can remove
+    the file from disk), or None if the document does not exist."""
     doc = await get_document(db, document_id)
     if not doc:
-        return False
+        return None
+    file_path = doc.file_path or ""
     await db.delete(doc)
     await db.commit()
     logger.info(f"Deleted document id={document_id}")
-    return True
+    return file_path
 
 
 async def confirm_document(

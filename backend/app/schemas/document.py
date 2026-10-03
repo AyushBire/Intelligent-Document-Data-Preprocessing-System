@@ -1,8 +1,8 @@
+import json
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
-import json
 
 
 class DocumentBase(BaseModel):
@@ -24,11 +24,12 @@ class DocumentUpdate(BaseModel):
 
 
 class DocumentResponse(BaseModel):
+    """Public API shape. file_path is intentionally NOT exposed (server path leak)."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     filename: str
-    file_path: str
     document_type: str
     ocr_text: str
     report: str
@@ -41,7 +42,8 @@ class DocumentResponse(BaseModel):
     def parse_raw_json(cls, v: Any) -> dict:
         if isinstance(v, str):
             try:
-                return json.loads(v)
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, dict) else {}
             except Exception:
                 return {}
         if isinstance(v, dict):

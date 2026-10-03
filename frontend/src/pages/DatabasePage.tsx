@@ -8,7 +8,7 @@ import {
   getDocumentTypes,
 } from "../api/documents";
 import type { DocumentResponse, DocumentUpdate } from "../types";
-import { Search, Trash2, Pencil, Eye, X, Save, ChevronDown } from "lucide-react";
+import { Search, Trash2, Pencil, Eye, X, Save, ChevronDown, Download, FileJson, FileText } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
 
 function Section({
@@ -28,6 +28,22 @@ function Section({
       {children}
     </section>
   );
+}
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function baseName(filename: string) {
+  return filename.replace(/\.[^./\\]+$/, "") || "document";
 }
 
 export default function DatabasePage() {
@@ -77,9 +93,6 @@ export default function DatabasePage() {
     },
   });
 
-  // Accessible dialog behavior: move focus into the dialog when it opens,
-  // and let Escape close it — without these, keyboard/screen-reader users
-  // can lose track of where they are on the page.
   useEffect(() => {
     if (deleteConfirm !== null) {
       cancelDeleteRef.current?.focus();
@@ -104,6 +117,24 @@ export default function DatabasePage() {
   const saveEdit = () => {
     if (!selectedDoc) return;
     updateMut.mutate({ id: selectedDoc.id, data: editData });
+  };
+
+  const handleDownloadJson = () => {
+    if (!selectedDoc) return;
+    downloadBlob(
+      JSON.stringify(selectedDoc.structured_data, null, 2),
+      `${baseName(selectedDoc.filename)}_extracted.json`,
+      "application/json"
+    );
+  };
+
+  const handleDownloadReport = () => {
+    if (!selectedDoc?.report) return;
+    downloadBlob(
+      selectedDoc.report,
+      `${baseName(selectedDoc.filename)}_report.txt`,
+      "text/plain"
+    );
   };
 
   return (
@@ -209,6 +240,7 @@ export default function DatabasePage() {
           </div>
         ) : (
           <div className="p-6 space-y-5">
+            {/* Header */}
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h1 className="text-white font-semibold text-lg truncate">
@@ -253,6 +285,26 @@ export default function DatabasePage() {
                 )}
               </div>
             </div>
+
+            {/* Download bar — always visible when not editing */}
+            {!editMode && (
+              <div className="flex gap-2 p-3 bg-[#1a1d2e] border border-[#2e3250] rounded-xl">
+                <button
+                  onClick={handleDownloadJson}
+                  disabled={Object.keys(selectedDoc.structured_data).length === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-teal-500/15 hover:bg-teal-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-teal-300 rounded-lg text-xs font-medium transition-colors border border-teal-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+                >
+                  <FileJson size={13} aria-hidden="true" /> Download JSON
+                </button>
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={!selectedDoc.report}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[#242840] hover:bg-[#2e3250] disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 rounded-lg text-xs transition-colors border border-[#2e3250] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                >
+                  <Download size={13} aria-hidden="true" /><FileText size={13} aria-hidden="true" /> Download report
+                </button>
+              </div>
+            )}
 
             <Section id="doc-type-heading" title="Document type">
               {editMode ? (

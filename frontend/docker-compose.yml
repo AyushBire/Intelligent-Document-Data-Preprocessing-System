@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: idps
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: idps
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idps -d idps"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://idps:${POSTGRES_PASSWORD}@db:5432/idps
+      AUTO_CREATE_TABLES: "false"     # Alembic owns the schema
+      UPLOAD_DIR: /app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"      # put HTTPS (Caddy / cloud LB / certbot) in front of this
+    depends_on:
+      - backend
+    volumes:
+      - ./deploy/.htpasswd:/etc/nginx/.htpasswd:ro
+
+volumes:
+  pgdata:
+  uploads:

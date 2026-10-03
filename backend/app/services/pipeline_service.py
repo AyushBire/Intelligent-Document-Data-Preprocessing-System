@@ -1,29 +1,51 @@
 """
-Wraps the existing DocumentPipeline so it can run inside
-FastAPI BackgroundTasks without blocking the event loop.
+Runs the DocumentPipeline for one uploaded file, in a worker thread, while
+reporting progress through an in-memory job store.
 
-The pipeline (EasyOCR + CV2 + Gemini) is CPU/IO-bound,
-so we run it in a thread pool via asyncio.to_thread().
+NOTE: the job store is per-process. Run uvicorn with a SINGLE worker until it is
+moved to Redis / a DB table.
 """
 
 import asyncio
 import logging
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Callable
 
+from app.config import get_settings
 from app.schemas.document import JobStatus
 
 logger = logging.getLogger("pipeline_service")
+settings = get_settings()
 
-# In-memory job store  {job_id: JobStatus}
-# Fine for a single-process server; swap for Redis if you scale out.
+JOB_TTL_SECONDS = 3600  # finished jobs are forgotten after 1 hour
+
 _jobs: dict[str, JobStatus] = {}
+_job_created: dict[str, float] = {}
+_semaphore: asyncio.Semaphore | None = None
+
+
+# ── Job store ──────────────────────────────────────────────────────────────────
+
+def _purge_expired() -> None:
+    cutoff = time.time() - JOB_TTL_SECONDS
+    expired = [
+        job_id
+        for job_id, created in _job_created.items()
+        if created < cutoff and _jobs.get(job_id) and _jobs[job_id].status in ("done", "error")
+    ]
+    for job_id in expired:
+        _jobs.pop(job_id, None)
+        _job_created.pop(job_id, None)
 
 
 def create_job() -> str:
+    _purge_expired()
     job_id = str(uuid.uuid4())
     _jobs[job_id] = JobStatus(job_id=job_id, status="pending", stage="", progress=0)
+    _job_created[job_id] = time.time()
     return job_id
 
 
@@ -38,108 +60,101 @@ def _update_job(job_id: str, **kwargs) -> None:
             setattr(job, k, v)
 
 
+def _get_semaphore() -> asyncio.Semaphore:
+    global _semaphore
+    if _semaphore is None:
+        _semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_JOBS)
+    return _semaphore
+
+
+# ── Pipeline singleton ─────────────────────────────────────────────────────────
+
+_pipeline_instance = None
+_pipeline_lock = threading.Lock()
+
+
+def _get_pipeline():
+    global _pipeline_instance
+    with _pipeline_lock:
+        if _pipeline_instance is None:
+            from processing.pipeline import DocumentPipeline
+
+            _pipeline_instance = DocumentPipeline()
+            logger.info("DocumentPipeline loaded (singleton)")
+    return _pipeline_instance
+
+
+def pipeline_ready() -> bool:
+    return _pipeline_instance is not None
+
+
+async def preload_pipeline() -> None:
+    """Called from the FastAPI lifespan so the first user doesn't pay the model-load cost."""
+    await asyncio.to_thread(_get_pipeline)
+
+
+def _run_ocr(pipeline, image):
+    ocr_results = pipeline.ocr.process(image)
+    ocr_text = pipeline.ocr.extract_text(ocr_results)
+    return ocr_text
+
+
+# ── Job runner ─────────────────────────────────────────────────────────────────
+
 async def run_pipeline(
     job_id: str,
     image_path: str,
-    save_to_db: Callable,          # async callable: (result_dict) -> document_id
-    notify: Callable | None = None,  # optional async callable for WebSocket push
+    save_to_db: Callable,             # async (result, stored_name, file_path) -> document_id
+    notify: Callable | None = None,   # async, pushes JobStatus to WebSocket clients
 ) -> None:
-    """
-    Runs the full pipeline in a background thread, updating job status at each
-    stage so the frontend can track progress via polling or WebSocket.
-    """
 
-    async def push(stage: str, progress: int, **extra):
-        _update_job(job_id, stage=stage, progress=progress, status="processing", **extra)
+    async def push(stage: str, progress: int) -> None:
+        _update_job(job_id, stage=stage, progress=progress, status="processing")
         if notify:
             try:
                 await notify(get_job(job_id))
             except Exception:
-                pass
+                pass  # a dead WebSocket must never fail the job
 
     try:
-        _update_job(job_id, status="processing", stage="preprocessing", progress=5)
+        # Only MAX_CONCURRENT_JOBS pipelines run at once; others wait as "pending"
+        async with _get_semaphore():
+            await push("preprocessing", 10)
+            pipeline = await asyncio.to_thread(_get_pipeline)
+            clean_image = await asyncio.to_thread(pipeline.preprocessor.process, image_path)
 
-        # --- Stage 1: preprocessing (CPU-bound, run in thread) ---
-        await push("preprocessing", 10)
-        from processing.pipeline import DocumentPipeline  # lazy import
+            await push("ocr", 30)
+            ocr_text = await asyncio.to_thread(_run_ocr, pipeline, clean_image)
 
-        pipeline = _get_pipeline()
+            await push("llm", 60)
+            llm_output = await asyncio.to_thread(pipeline.llm.process, ocr_text)
 
-        def _preprocess():
-            from processing.preprocessing import ImagePreprocessor
-            preprocessor = ImagePreprocessor()
-            return preprocessor.process(image_path)
-
-        clean_image = await asyncio.to_thread(_preprocess)
-        await push("preprocessing", 25)
-
-        # --- Stage 2: OCR ---
-        await push("ocr", 30)
-
-        def _ocr():
-            ocr_results = pipeline.ocr.process(clean_image)
-            ocr_text = pipeline.ocr.extract_text(ocr_results)
-            boxed = pipeline.visualizer.draw_boxes(
-                clean_image, ocr_results, show_text=False, show_confidence=False
-            )
-            return ocr_results, ocr_text, boxed
-
-        ocr_results, ocr_text, boxed_image = await asyncio.to_thread(_ocr)
-        await push("ocr", 55)
-
-        # --- Stage 3: LLM ---
-        await push("llm", 60)
-
-        def _llm():
-            return pipeline.llm.process(ocr_text)
-
-        llm_output = await asyncio.to_thread(_llm)
-        await push("llm", 80)
-
-        # --- Stage 4: Save to DB ---
-        await push("saving", 85)
+            await push("saving", 85)
 
         result = {
-            "clean_image": clean_image,
-            "boxed_image": boxed_image,
-            "ocr_results": ocr_results,
             "ocr_text": ocr_text,
             "document_type": llm_output.get("document_type", "unknown"),
             "structured_data": llm_output.get("structured_data", {}),
             "report": llm_output.get("report", ""),
         }
-
         document_id = await save_to_db(result, Path(image_path).name, image_path)
 
-        _update_job(
-            job_id,
-            status="done",
-            stage="done",
-            progress=100,
-            document_id=document_id,
-        )
+        _update_job(job_id, status="done", stage="done", progress=100, document_id=document_id)
         if notify:
             await notify(get_job(job_id))
-
         logger.info(f"Job {job_id} completed → document_id={document_id}")
 
-    except Exception as e:
-        logger.error(f"Job {job_id} failed: {e}")
-        _update_job(job_id, status="error", error=str(e))
+    except Exception:
+        logger.exception(f"Job {job_id} failed")
+        # Generic message to the client; details stay in the server log
+        _update_job(
+            job_id,
+            status="error",
+            error="Processing failed. Please try again or upload a clearer image.",
+        )
+        Path(image_path).unlink(missing_ok=True)  # don't keep files for failed jobs
         if notify:
-            await notify(get_job(job_id))
-
-
-# ── Singleton pipeline (loaded once per process) ───────────────────────────────
-
-_pipeline_instance = None
-
-
-def _get_pipeline():
-    global _pipeline_instance
-    if _pipeline_instance is None:
-        from processing.pipeline import DocumentPipeline
-        _pipeline_instance = DocumentPipeline()
-        logger.info("DocumentPipeline loaded (singleton)")
-    return _pipeline_instance
+            try:
+                await notify(get_job(job_id))
+            except Exception:
+                pass
