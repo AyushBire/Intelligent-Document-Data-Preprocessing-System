@@ -8,7 +8,6 @@ from processing.visualizer import OCRVisualizer
 from processing.llm_processor import LLMProcessor
 
 logger = logging.getLogger("pipeline")
-logging.basicConfig(level=logging.INFO)
 
 
 class DocumentPipeline:

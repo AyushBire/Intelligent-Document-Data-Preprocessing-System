@@ -94,3 +94,4 @@ class TypeCount(BaseModel):
 class StatsResponse(BaseModel):
     total: int
     by_type: list[TypeCount]
+    today: int = 0

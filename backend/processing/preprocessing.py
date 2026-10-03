@@ -1,10 +1,10 @@
 import cv2
 import numpy as np
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger("preprocessing")
-logging.basicConfig(level=logging.INFO)
 
 
 class ImagePreprocessor:
@@ -15,11 +15,22 @@ class ImagePreprocessor:
     # IMAGE LOADING
 
     def load_image(self, image_path: str) -> np.ndarray:
+        """Load an image and bound dimensions before preprocessing and OCR.
+
+        Args: image_path: Local image path. Returns: BGR image within configured limit.
+        Raises: FileNotFoundError for undecodable images; ValueError for invalid size configuration.
+        """
         try:
             image = cv2.imread(image_path)
 
             if image is None:
                 raise FileNotFoundError(f"Unable to load image: {image_path}")
+
+            max_side = max(256, int(os.getenv("OCR_MAX_SIDE_PX", "2400")))
+            height, width = image.shape[:2]
+            if max(height, width) > max_side:
+                scale = max_side / max(height, width)
+                image = cv2.resize(image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA)
 
             logger.info(f"Loaded image: {image_path} shape={image.shape}")
             return image
@@ -108,6 +119,11 @@ class ImagePreprocessor:
     # DESKEW
 
     def deskew(self, image: np.ndarray) -> np.ndarray:
+        """Correct a small text rotation across OpenCV angle conventions.
+
+        Args: image: Grayscale input. Returns: Corrected image or original on failure.
+        Raises: None; detection failures retain the input.
+        """
         try:
             # Angle estimation needs a binary mask to work reliably.
             # If `image` is already binary this is a no-op; if it's grayscale
@@ -118,7 +134,7 @@ class ImagePreprocessor:
                 image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
             )
 
-            coords = np.column_stack(np.where(mask > 0))
+            coords = np.column_stack(np.where(mask > 0))[:, ::-1]
 
             if len(coords) == 0:
                 logger.warning("deskew: no foreground pixels found, skipping")
@@ -128,6 +144,8 @@ class ImagePreprocessor:
 
             if angle < -45:
                 angle = 90 + angle
+            elif angle > 45:
+                angle -= 90
 
             if abs(angle) < 0.5:
                 return image

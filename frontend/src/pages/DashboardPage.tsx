@@ -1,197 +1,212 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  FileText,
+  Layers,
+  ScanLine,
+  Sun,
+} from "lucide-react";
 import { getStats, listDocuments } from "../api/documents";
-import { FileText, Tag, TrendingUp, Clock } from "lucide-react";
-import StatusBadge from "../components/StatusBadge";
+import { EmptyState, ErrorState, Loading, PageHeader } from "../components/ui";
+import { dateLabel } from "../lib/utils";
+import { readActiveJob, useJob } from "../hooks/useJob";
 
-function isToday(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
-}
-
-function timeAgo(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
+/** Display real metrics and recent documents. @returns Dashboard. @throws None. */
 export default function DashboardPage() {
-  // refetchInterval keeps this page feeling "live" even if a document
-  // finishes processing while the user is sitting here idle (rather than
-  // only refreshing on navigation).
-  const { data: stats, dataUpdatedAt } = useQuery({
+  const stats = useQuery({
     queryKey: ["stats"],
     queryFn: getStats,
     refetchInterval: 15000,
   });
-
-  const { data: recentDocs = [] } = useQuery({
+  const recent = useQuery({
     queryKey: ["documents", "recent"],
-    // Reuses the same list endpoint the Database page uses — no new API
-    // needed. Ordered newest-first by the backend already.
-    queryFn: () => listDocuments({ limit: 50 }),
+    queryFn: () => listDocuments({ limit: 5 }),
     refetchInterval: 15000,
   });
-
-  const uploadedToday = recentDocs.filter((d) => isToday(d.created_at)).length;
-  const topType = stats?.by_type?.[0]?.document_type?.replace(/_/g, " ") ?? "—";
-
-  const cards = [
+  const active = readActiveJob();
+  const job = useJob(active?.job_id);
+  const metrics = [
     {
-      label: "Total documents",
-      value: stats?.total ?? "—",
+      title: "Total documents",
+      value: stats.data?.total,
       icon: FileText,
-      color: "text-indigo-400",
-      bg: "bg-indigo-500/10",
+      caption: "In your document library",
     },
     {
-      label: "Document types",
-      value: stats?.by_type?.length ?? "—",
-      icon: Tag,
-      color: "text-violet-400",
-      bg: "bg-violet-500/10",
+      title: "Uploaded today",
+      value: stats.data?.today,
+      icon: Sun,
+      caption: "Current UTC calendar day",
     },
     {
-      label: "Most common type",
-      value: topType,
-      icon: TrendingUp,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      capitalize: true,
-    },
-    {
-      label: "Uploaded today",
-      value: uploadedToday,
-      icon: Clock,
-      color: "text-amber-400",
-      bg: "bg-amber-500/10",
+      title: "Document types",
+      value: stats.data?.by_type.length,
+      icon: Layers,
+      caption: "Automatically classified",
     },
   ];
-
   return (
-    <main className="p-8 max-w-4xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-        <p className="text-slate-400 text-sm mt-1">Overview of your document processing activity</p>
-      </div>
-
-      {/* Screen-reader-only live announcement so assistive tech hears
-          updates without needing to re-visit the page. Visually the
-          numbers below update in place. */}
-      <p className="sr-only" role="status" aria-live="polite">
-        {stats ? `${stats.total} total documents. ${uploadedToday} uploaded today.` : "Loading stats"}
-      </p>
-
-      <section aria-label="Summary statistics" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map(({ label, value, icon: Icon, color, bg, capitalize }) => (
-          <div
-            key={label}
-            className="bg-[#141726] border border-[#2e3250] rounded-xl p-5 space-y-3"
-          >
-            <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
-              <Icon size={16} className={color} aria-hidden="true" />
+    <>
+      <PageHeader
+        title="Your document workspace"
+        subtitle="Turn everyday documents into organized, actionable information."
+        actions={
+          <Link className="button" to="/extract">
+            <ScanLine size={17} />
+            New extraction
+          </Link>
+        }
+      />
+      <section className="hero-card">
+        <div>
+          <span className="pill">OCR + AI EXTRACTION</span>
+          <h2>
+            Less manual entry.
+            <br />
+            <span>More meaningful work.</span>
+          </h2>
+          <p>
+            Upload a document, extract its key information,
+            <br className="desktop-only" /> and review the results in one
+            focused workspace.
+          </p>
+          <Link className="button" to="/extract">
+            Extract a document <ArrowRight size={17} />
+          </Link>
+          <span className="hero-hint">JPG, PNG, BMP & TIFF · Up to 20 MB</span>
+        </div>
+        <div className="hero-art" aria-hidden="true">
+          <div className="document-art">
+            <span className="art-logo">
+              <FileText size={22} />
+              DOCUMENT
+            </span>
+            <div className="art-line long" />
+            <div className="art-line" />
+            <div className="art-line short" />
+            <div className="art-table">
+              {Array.from({ length: 6 }, (_, i) => (
+                <span key={i} />
+              ))}
             </div>
+            <div className="art-line" />
+            <div className="art-line short" />
+            <span className="scan-line" />
+          </div>
+          <div className="art-result">
+            <span className="green-dot" />
+            Structured & ready<small>From document to data</small>
+          </div>
+        </div>
+      </section>
+      {job.data && ["pending", "processing"].includes(job.data.status) && (
+        <Link to="/extract" className="active-job">
+          <ScanLine size={18} />
+          Extraction in progress: {active?.filename}
+          <span>{job.data.progress}% →</span>
+        </Link>
+      )}
+      {stats.isError ? (
+        <ErrorState error={stats.error} retry={() => void stats.refetch()} />
+      ) : stats.isPending ? (
+        <Loading />
+      ) : (
+        <section className="stats-grid">
+          {metrics.map(({ title, value, icon: Icon, caption }) => (
+            <article className="stat-card" key={title}>
+              <div>
+                <span>{title}</span>
+                <Icon size={19} />
+              </div>
+              <strong>{value}</strong>
+              <small>{caption}</small>
+            </article>
+          ))}
+        </section>
+      )}
+      <section className="dashboard-grid">
+        <article className="panel">
+          <div className="panel-heading">
             <div>
-              <p
-                className={`text-2xl font-bold text-white leading-none tabular-nums ${
-                  capitalize ? "capitalize text-lg" : ""
-                }`}
-              >
-                {value}
-              </p>
-              <p className="text-slate-500 text-xs mt-1">{label}</p>
+              <h2>Recent documents</h2>
+              <p>Your latest extractions, ready to review.</p>
+            </div>
+            <Link className="text-link" to="/documents">
+              View all <ArrowUpRight size={16} />
+            </Link>
+          </div>
+          {recent.isPending ? (
+            <Loading />
+          ) : recent.isError ? (
+            <ErrorState
+              error={recent.error}
+              retry={() => void recent.refetch()}
+            />
+          ) : recent.data.length === 0 ? (
+            <EmptyState title="Your first document starts here">
+              <p>Extract a document to build your library.</p>
+              <Link to="/extract" className="button">
+                Get started
+              </Link>
+            </EmptyState>
+          ) : (
+            <div className="recent-list">
+              {recent.data.map((doc) => (
+                <Link
+                  to={`/documents/${doc.id}`}
+                  key={doc.id}
+                  className="recent-row"
+                >
+                  <span className="file-icon">
+                    <FileText size={20} />
+                  </span>
+                  <div>
+                    <strong>{doc.filename}</strong>
+                    <small>{dateLabel(doc.created_at)}</small>
+                  </div>
+                  <span className="badge">
+                    {doc.document_type.replaceAll("_", " ")}
+                  </span>
+                  <ArrowUpRight size={16} />
+                </Link>
+              ))}
+            </div>
+          )}
+        </article>
+        <article className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Document breakdown</h2>
+              <p>A view of your library by type.</p>
             </div>
           </div>
-        ))}
-      </section>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Type breakdown */}
-        <section
-          aria-labelledby="by-type-heading"
-          className="bg-[#141726] border border-[#2e3250] rounded-xl p-6"
-        >
-          <h2 id="by-type-heading" className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Tag size={14} className="text-slate-500" aria-hidden="true" /> By document type
-          </h2>
-          {!stats?.by_type || stats.by_type.length === 0 ? (
-            <p className="text-slate-500 text-sm">No documents processed yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {stats.by_type.map(({ document_type, count }) => {
-                const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
-                return (
-                  <div key={document_type}>
-                    <div className="flex justify-between text-sm mb-1.5">
-                      <span className="text-slate-300 capitalize">
-                        {document_type.replace(/_/g, " ")}
-                      </span>
-                      <span className="text-slate-500 text-xs tabular-nums">
-                        {count} · {pct}%
-                      </span>
-                    </div>
-                    <div
-                      className="h-1.5 bg-[#242840] rounded-full overflow-hidden"
-                      role="progressbar"
-                      aria-valuenow={pct}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={`${document_type.replace(/_/g, " ")}: ${pct}%`}
-                    >
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+          {stats.data?.by_type.length ? (
+            <div className="distribution">
+              {stats.data.by_type.slice(0, 6).map((type) => (
+                <div key={type.document_type}>
+                  <div>
+                    <span>{type.document_type.replaceAll("_", " ")}</span>
+                    <strong>{type.count}</strong>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Recent activity */}
-        <section
-          aria-labelledby="recent-heading"
-          className="bg-[#141726] border border-[#2e3250] rounded-xl p-6"
-        >
-          <h2 id="recent-heading" className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Clock size={14} className="text-slate-500" aria-hidden="true" /> Recent uploads
-          </h2>
-          {recentDocs.length === 0 ? (
-            <p className="text-slate-500 text-sm">
-              Nothing here yet — process a document to see it appear.
-            </p>
-          ) : (
-            <ul role="list" className="space-y-3">
-              {recentDocs.slice(0, 5).map((doc) => (
-                <li key={doc.id} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-slate-200 text-sm truncate">{doc.filename}</p>
-                    <p className="text-slate-600 text-xs mt-0.5">{timeAgo(doc.created_at)}</p>
+                  <div className="track">
+                    <span
+                      style={{
+                        width: `${(type.count / stats.data.total) * 100}%`,
+                      }}
+                    />
                   </div>
-                  <StatusBadge value={doc.document_type} />
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
+          ) : (
+            <EmptyState title="No document types yet">
+              <p>Your distribution appears after extraction.</p>
+            </EmptyState>
           )}
-        </section>
-      </div>
-
-      {dataUpdatedAt > 0 && (
-        <p className="text-slate-700 text-xs text-center">
-          Last updated {new Date(dataUpdatedAt).toLocaleTimeString()}
-        </p>
-      )}
-    </main>
+        </article>
+      </section>
+    </>
   );
 }

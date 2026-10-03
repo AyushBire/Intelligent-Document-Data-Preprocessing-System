@@ -2,7 +2,8 @@ import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.ws import broadcast_job
@@ -144,15 +145,21 @@ async def get_job_status(job_id: str):
 
 @router.get("", response_model=list[DocumentListItem])
 async def list_documents(
+    response: Response,
     document_type: str | None = Query(None),
     search: str | None = Query(None),
-    limit: int = Query(100, le=500),
+    limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    if search:
-        return await svc.search_documents(db, search, limit=limit)
-    return await svc.list_documents(db, document_type=document_type, limit=limit, offset=offset)
+    """List filtered documents and expose their total count for pagination.
+
+    Args: response: Header target; document_type: Type; search: Query;
+        limit: Page size; offset: Page offset; db: Session.
+    Returns: Document list. Raises: Database errors on storage failure.
+    """
+    response.headers["X-Total-Count"] = str(await svc.count_documents(db, document_type, search))
+    return await svc.list_documents(db, document_type=document_type, limit=limit, offset=offset, search=search)
 
 
 @router.get("/types", response_model=list[str])
@@ -171,6 +178,25 @@ async def get_document(document_id: int, db: AsyncSession = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return _to_response(doc)
+
+
+@router.get("/{document_id}/file")
+async def get_document_file(document_id: int, db: AsyncSession = Depends(get_db)):
+    """Serve a stored image without exposing server paths.
+
+    Args: document_id: Record identifier; db: Session.
+    Returns: Private image response. Raises: HTTPException(404) for absent or unsafe paths.
+    """
+    doc = await svc.get_document(db, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = Path(doc.file_path).resolve()
+    root = Path(settings.UPLOAD_DIR).resolve()
+    media = {".jpg": "image/jpeg", ".png": "image/png", ".bmp": "image/bmp", ".tiff": "image/tiff"}
+    if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in media:
+        raise HTTPException(status_code=404, detail="Source image is unavailable")
+    return FileResponse(path, media_type=media[path.suffix.lower()], headers={
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
 
 
 @router.patch("/{document_id}", response_model=DocumentResponse)

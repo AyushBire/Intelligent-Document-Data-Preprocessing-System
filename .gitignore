@@ -12,12 +12,24 @@ env/
 # Environment files
 .env
 .env.*
+!.env.example
+
+node_modules/
+dist/
+*.tsbuildinfo
+.pytest_cache/
+deploy/.htpasswd
+docker-compose.local.yml
+backups/
+*.sqlite3-journal
+.validation/
 
 # Jupyter notebooks checkpoints
 .ipynb_checkpoints/
 
 # Streamlit / local app data
 uploads/
+uploads_postgres/
 outputs/
 *.log
 

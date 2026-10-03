@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint src vite.config.ts --deny-warnings",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
+    "axios": "^1.20.0",
+    "lucide-react": "^1.43.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
@@ -21,6 +25,7 @@
     "autoprefixer": "^10.5.5",
     "oxlint": "^1.79.0",
     "postcss": "^8.5.28",
+    "prettier": "^3.9.9",
     "tailwindcss": "^3.4.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.2"

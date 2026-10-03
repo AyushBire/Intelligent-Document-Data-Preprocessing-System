@@ -5,10 +5,10 @@ from app.config import get_settings
 
 settings = get_settings()
 
-_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+_is_sqlite = settings.database_url.get_backend_name() == "sqlite"
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.database_url,
     echo=settings.DEBUG,
     pool_pre_ping=True,
     # check_same_thread is SQLite-only; asyncpg rejects it
@@ -23,10 +23,15 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 class Base(DeclarativeBase):
+    """Provide shared SQLAlchemy metadata for models and migrations."""
     pass
 
 
 async def get_db():
+    """Yield a transactional request session.
+
+    Yields: AsyncSession. Raises: Database errors after rolling back writes.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session

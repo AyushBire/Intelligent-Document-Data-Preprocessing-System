@@ -9,11 +9,12 @@ from app.config import get_settings
 from app.db import Base
 
 target_metadata = Base.metadata
-url = get_settings().DATABASE_URL
-is_sqlite = url.startswith("sqlite")
+url = get_settings().database_url
+is_sqlite = url.get_backend_name() == "sqlite"
 
 
 def run_migrations_offline() -> None:
+    """Emit migration SQL. Returns: None. Raises: Migration configuration errors."""
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -25,6 +26,10 @@ def run_migrations_offline() -> None:
 
 
 def _do_run_migrations(connection) -> None:
+    """Apply migrations on a connection. Args: connection: SQLAlchemy connection.
+
+    Returns: None. Raises: Database or migration errors.
+    """
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -36,6 +41,7 @@ def _do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    """Apply migrations transactionally. Returns: None. Raises: Database errors."""
     engine = create_async_engine(url, poolclass=pool.NullPool)
     async with engine.connect() as connection:
         await connection.run_sync(_do_run_migrations)

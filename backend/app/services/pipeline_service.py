@@ -107,8 +107,17 @@ async def run_pipeline(
     save_to_db: Callable,             # async (result, stored_name, file_path) -> document_id
     notify: Callable | None = None,   # async, pushes JobStatus to WebSocket clients
 ) -> None:
+    """Run extraction and persist usable results while publishing progress.
 
+    Args: job_id: Job identifier; image_path: Stored image; save_to_db: Async save callback;
+        notify: Optional async status callback.
+    Returns: None. Raises: None; processing failures update job state and remove failed uploads.
+    """
     async def push(stage: str, progress: int) -> None:
+        """Publish processing progress without failing on disconnected listeners.
+
+        Args: stage: Pipeline step; progress: Percentage. Returns: None. Raises: None.
+        """
         _update_job(job_id, stage=stage, progress=progress, status="processing")
         if notify:
             try:
@@ -125,9 +134,13 @@ async def run_pipeline(
 
             await push("ocr", 30)
             ocr_text = await asyncio.to_thread(_run_ocr, pipeline, clean_image)
+            if not ocr_text.strip():
+                raise ValueError("No readable text detected")
 
             await push("llm", 60)
             llm_output = await asyncio.to_thread(pipeline.llm.process, ocr_text)
+            if llm_output.get("error") or not isinstance(llm_output.get("structured_data"), dict) or not llm_output.get("structured_data"):
+                raise ValueError("AI extraction returned no usable data")
 
             await push("saving", 85)
 
@@ -141,7 +154,10 @@ async def run_pipeline(
 
         _update_job(job_id, status="done", stage="done", progress=100, document_id=document_id)
         if notify:
-            await notify(get_job(job_id))
+            try:
+                await notify(get_job(job_id))
+            except Exception:
+                logger.warning("Completion notification could not be delivered")
         logger.info(f"Job {job_id} completed → document_id={document_id}")
 
     except Exception:

@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select
@@ -120,12 +121,46 @@ async def list_documents(
     document_type: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    search: str | None = None,
 ) -> list[Document]:
-    stmt = select(Document).order_by(Document.created_at.desc()).limit(limit).offset(offset)
-    if document_type:
-        stmt = stmt.where(Document.document_type == document_type)
+    """Return filtered documents, ordered deterministically for pagination.
+
+    Args: db: Session; document_type: Exact type; limit: Page size;
+        offset: Rows to skip; search: Optional text query.
+    Returns: Matching document rows. Raises: SQLAlchemyError on database failure.
+    """
+    stmt = _filter_documents(select(Document), document_type, search)
+    stmt = stmt.order_by(Document.created_at.desc(), Document.id.desc()).limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+def _filter_documents(stmt, document_type: str | None, search: str | None):
+    """Apply shared predicates to a select or count statement.
+
+    Args: stmt: SQL statement; document_type: Type filter; search: Literal query.
+    Returns: Filtered statement. Raises: None.
+    """
+    if document_type:
+        stmt = stmt.where(Document.document_type == document_type)
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        stmt = stmt.where(or_(Document.filename.ilike(like, escape="\\"),
+                              Document.document_type.ilike(like, escape="\\"),
+                              Document.ocr_text.ilike(like, escape="\\")))
+    return stmt
+
+
+async def count_documents(db: AsyncSession, document_type: str | None = None,
+                          search: str | None = None) -> int:
+    """Count rows using the same filters as the paginated list.
+
+    Args: db: Session; document_type: Type filter; search: Text query.
+    Returns: Matching row count. Raises: SQLAlchemyError on database failure.
+    """
+    result = await db.execute(_filter_documents(select(func.count()).select_from(Document), document_type, search))
+    return result.scalar_one()
 
 
 async def search_documents(
@@ -225,6 +260,11 @@ async def confirm_document(
 
 
 async def get_stats(db: AsyncSession) -> StatsResponse:
+    """Return total, UTC calendar-day count and type distribution.
+
+    Args: db: Active session. Returns: Statistics.
+    Raises: SQLAlchemyError on database failure.
+    """
     total_result = await db.execute(select(func.count()).select_from(Document))
     total = total_result.scalar_one()
 
@@ -238,7 +278,10 @@ async def get_stats(db: AsyncSession) -> StatsResponse:
         for row in by_type_result
     ]
 
-    return StatsResponse(total=total, by_type=by_type)
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = await db.execute(select(func.count()).select_from(Document).where(
+        Document.created_at >= start, Document.created_at < start + timedelta(days=1)))
+    return StatsResponse(total=total, by_type=by_type, today=today.scalar_one())
 
 
 async def get_all_document_types(db: AsyncSession) -> list[str]:

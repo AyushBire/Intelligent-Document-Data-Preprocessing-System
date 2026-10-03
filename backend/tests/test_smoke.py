@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_idps.db"
 os.environ["PRELOAD_MODELS"] = "false"
+os.environ["AUTO_CREATE_TABLES"] = "true"
 
 import cv2
 import numpy as np

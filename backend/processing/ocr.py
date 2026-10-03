@@ -3,7 +3,6 @@ import cv2
 import logging
 
 logger = logging.getLogger("ocr")
-logging.basicConfig(level=logging.INFO)
 
 
 class OCRProcessor:
@@ -13,7 +12,6 @@ class OCRProcessor:
 
     def __init__(self):
         try:
-            print("Loading EasyOCR model...")
             logger.info("Initializing EasyOCR reader (lang=en, gpu=False)")
 
             self.reader = easyocr.Reader(

@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "IDPS PostgreSQL",
+      "Group": "IDPS Workspace",
+      "Host": "db",
+      "Port": 5432,
+      "MaintenanceDB": "idps",
+      "Username": "idps",
+      "SSLMode": "prefer"
+    }
+  }
+}

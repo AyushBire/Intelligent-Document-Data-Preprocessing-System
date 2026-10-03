@@ -8,7 +8,6 @@ export interface DocumentListItem {
 export interface DocumentResponse {
   id: number;
   filename: string;
-  file_path: string;
   document_type: string;
   ocr_text: string;
   report: string;
@@ -28,8 +27,8 @@ export interface JobStatus {
   status: "pending" | "processing" | "done" | "error";
   stage: string;
   progress: number;
-  document_id?: number;
-  error?: string;
+  document_id?: number | null;
+  error?: string | null;
 }
 
 export interface TypeCount {
@@ -39,6 +38,7 @@ export interface TypeCount {
 
 export interface StatsResponse {
   total: number;
+  today: number;
   by_type: TypeCount[];
 }
 
