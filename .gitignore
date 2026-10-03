@@ -21,6 +21,7 @@ dist/
 deploy/.htpasswd
 docker-compose.local.yml
 backups/
+.vercel/
 *.sqlite3-journal
 .validation/
 
