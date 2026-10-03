@@ -10,6 +10,7 @@ from app.api.health import router as health_router
 from app.api.ws import router as ws_router
 from app.config import get_settings
 from app.db import Base, engine
+from app.presentation_auth import PresentationAuthMiddleware
 from app.services.pipeline_service import preload_pipeline
 
 # Configure logging ONCE, here. Do not call basicConfig in other modules.
@@ -58,6 +59,19 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 
+if settings.PRESENTATION_AUTH_ENABLED:
+    app.add_middleware(PresentationAuthMiddleware, username=settings.PRESENTATION_USERNAME,
+                       password=settings.PRESENTATION_PASSWORD.get_secret_value())
+
 app.include_router(health_router)
 app.include_router(documents_router, prefix="/api")
 app.include_router(ws_router)  # WebSocket — path is /ws/jobs/{id}
+
+
+@app.get("/api/login", include_in_schema=False)
+async def presentation_login():
+    """Confirm browser login without displaying document data.
+
+    Returns: Authentication status. Raises: None; middleware challenges invalid credentials.
+    """
+    return {"status": "authenticated" if settings.PRESENTATION_AUTH_ENABLED else "authentication not required"}

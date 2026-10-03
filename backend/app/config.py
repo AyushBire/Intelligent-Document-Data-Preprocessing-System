@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -38,6 +38,19 @@ class Settings(BaseSettings):
     APP_TITLE: str = "IDPS API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    PRESENTATION_AUTH_ENABLED: bool = False
+    PRESENTATION_USERNAME: str = "presenter"
+    PRESENTATION_PASSWORD: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def validate_presentation_auth(self) -> "Settings":
+        """Require a password before exposing a presentation backend.
+
+        Returns: Validated settings. Raises: ValueError for an absent password.
+        """
+        if self.PRESENTATION_AUTH_ENABLED and (not self.PRESENTATION_PASSWORD or not self.PRESENTATION_PASSWORD.get_secret_value()):
+            raise ValueError("Set PRESENTATION_PASSWORD before enabling presentation authentication.")
+        return self
 
     model_config = SettingsConfigDict(
         env_file=(Path(__file__).resolve().parents[2] / ".env", ".env"),
