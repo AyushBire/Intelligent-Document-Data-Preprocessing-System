@@ -6,11 +6,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://bracket-hosted-mathematics-dir.trycloudflare.com/api/:path*"
+      "destination": "https://phenomenon-induction-exterior-commodities.trycloudflare.com/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://bracket-hosted-mathematics-dir.trycloudflare.com/health"
+      "destination": "https://phenomenon-induction-exterior-commodities.trycloudflare.com/health"
     },
     {
       "source": "/((?!api(?:/|$)|health(?:/|$)|ws(?:/|$)).*)",
