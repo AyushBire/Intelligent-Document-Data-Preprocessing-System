@@ -10,6 +10,30 @@ Use synthetic documents when presenting. Temporary tunnel addresses change on re
 
 ## Start again after reboot
 
+Run this single command in PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\FOR VS CODE\Internship\IDPS\start-presentation.ps1"
+```
+
+The launcher starts PostgreSQL, loads the backend, starts or reuses the tunnel,
+verifies authentication, and commits and pushes only `frontend/vercel.json` when
+the tunnel address changes. Vercel then deploys automatically. Git must already
+be signed in, the checkout must be on `main`, and `frontend/vercel.json` must have
+no uncommitted edits. Other files are not staged or included in the commit.
+
+Keep the single terminal open and the laptop awake. Press Ctrl+C to stop the
+backend and tunnel started by this launcher. PostgreSQL and services that were
+already running are left running. Logs are in `.validation/presentation-backend.log`
+and `.validation/presentation-tunnel.log`. A new tunnel requires a Vercel rebuild;
+the launcher waits up to three minutes and reports if deployment is still pending.
+If the tunnel expires during use, press Ctrl+C and rerun the command.
+
+For a local startup without an automatic Git push, append `-NoDeploy`. That mode
+does not reconnect the live website when the tunnel address changes.
+
+### Manual alternative
+
 Use separate PowerShell terminals. From the repository root, start PostgreSQL if it is not already running:
 
 ```powershell

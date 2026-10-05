@@ -12,6 +12,29 @@ from dotenv import dotenv_values
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def verify_backend(origin: str) -> None:
+    """Verify authentication and database readiness without changing files.
+
+    Args: origin: Local or public backend origin.
+    Returns: None. Raises: ValueError, OSError or network errors on failed checks.
+    """
+    values = dotenv_values(ROOT / ".env")
+    username = values.get("PRESENTATION_USERNAME", "presenter")
+    password = values.get("PRESENTATION_PASSWORD")
+    if not password:
+        raise ValueError("Set PRESENTATION_PASSWORD in the private root .env first.")
+    try:
+        with urlopen(origin + "/api/documents/stats", timeout=30):
+            raise ValueError("Backend is unprotected; refusing to connect it.")
+    except HTTPError as error:
+        if error.code != 401:
+            raise ValueError(f"Expected HTTP 401, received HTTP {error.code}.") from None
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    with urlopen(Request(origin + "/health/ready", headers={"Authorization": "Basic " + token}), timeout=30) as response:
+        if json.load(response).get("status") != "ready":
+            raise ValueError("The backend is not ready.")
+
+
 def connect(origin: str) -> None:
     """Verify protection and update the public frontend proxy configuration.
 
@@ -26,16 +49,7 @@ def connect(origin: str) -> None:
     password = values.get("PRESENTATION_PASSWORD")
     if not password:
         raise ValueError("Set PRESENTATION_PASSWORD in the private root .env first.")
-    try:
-        with urlopen(origin + "/api/documents/stats", timeout=30):
-            raise ValueError("Backend is unprotected; refusing to connect it.")
-    except HTTPError as error:
-        if error.code != 401:
-            raise ValueError(f"Expected a login challenge, received HTTP {error.code}.") from None
-    token = base64.b64encode(f"{username}:{password}".encode()).decode()
-    with urlopen(Request(origin + "/health/ready", headers={"Authorization": "Basic " + token}), timeout=30) as response:
-        if json.load(response).get("status") != "ready":
-            raise ValueError("The backend is not ready.")
+    verify_backend(origin)
     config_path = ROOT / "frontend" / "vercel.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["rewrites"] = [
