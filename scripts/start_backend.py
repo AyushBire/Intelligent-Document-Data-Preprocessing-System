@@ -1,4 +1,4 @@
-"""Start the existing laptop presentation deployment from one terminal."""
+"""Start the laptop backend and reconnect the live website from one terminal."""
 import argparse
 import json
 import os

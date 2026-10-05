@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Starts the local presentation services and reconnects the Vercel website.
+Starts the local backend services and reconnects the Vercel website.
 .DESCRIPTION
 Keeps all startup commands in one terminal. Requires the existing private
 environment, Python environment, PostgreSQL runtime and cloudflared executable.
@@ -16,7 +16,7 @@ $pythonPath = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Python environment missing: $pythonPath"
 }
-$startupArguments = @((Join-Path $PSScriptRoot 'scripts\start_presentation.py'))
+$startupArguments = @((Join-Path $PSScriptRoot 'scripts\start_backend.py'))
 if ($NoDeploy) { $startupArguments += '--no-deploy' }
 & $pythonPath @startupArguments
 exit $LASTEXITCODE

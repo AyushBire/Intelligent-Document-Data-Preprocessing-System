@@ -13,7 +13,7 @@ Use synthetic documents when presenting. Temporary tunnel addresses change on re
 Run this single command in PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\FOR VS CODE\Internship\IDPS\start-presentation.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\FOR VS CODE\Internship\IDPS\start-backend.ps1"
 ```
 
 The launcher starts PostgreSQL, loads the backend, starts or reuses the tunnel,
