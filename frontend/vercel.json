@@ -6,11 +6,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://phenomenon-induction-exterior-commodities.trycloudflare.com/api/:path*"
+      "destination": "https://purchases-darwin-starts-deborah.trycloudflare.com/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://phenomenon-induction-exterior-commodities.trycloudflare.com/health"
+      "destination": "https://purchases-darwin-starts-deborah.trycloudflare.com/health"
     },
     {
       "source": "/((?!api(?:/|$)|health(?:/|$)|ws(?:/|$)).*)",
