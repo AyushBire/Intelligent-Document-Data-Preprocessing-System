@@ -165,8 +165,14 @@ def start(no_deploy: bool) -> None:
                                 creationflags=subprocess.CREATE_NO_WINDOW)
         if status.returncode:
             print("Starting PostgreSQL...", flush=True)
-            run_command([pg_ctl, "-D", pg_data, "-l", str(RUNTIME / "postgres.log"),
-                         "-o", "-h 127.0.0.1 -p 55432", "start"])
+            # PostgreSQL inherits handles from pg_ctl; pipes would remain open after pg_ctl exits.
+            with (RUNTIME / "postgres-start.log").open("w", encoding="utf-8") as log:
+                result = subprocess.run([pg_ctl, "-D", pg_data, "-l", str(RUNTIME / "postgres.log"),
+                                         "-o", "-h 127.0.0.1 -p 55432", "start"],
+                                        stdout=log, stderr=subprocess.STDOUT,
+                                        creationflags=subprocess.CREATE_NO_WINDOW)
+            if result.returncode:
+                raise RuntimeError("PostgreSQL startup failed. See .validation/postgres-start.log.")
         else:
             print("PostgreSQL is already running.", flush=True)
 
