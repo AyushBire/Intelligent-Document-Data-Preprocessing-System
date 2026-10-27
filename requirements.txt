@@ -1,2 +1,19 @@
-# Cloud API dependencies. Local OCR: backend/requirements-local.txt
--r backend/requirements.txt
+# Cloud runtime dependencies; local OCR uses backend/requirements-local.txt.
+# Web
+fastapi==0.115.5
+uvicorn==0.32.1
+python-multipart==0.0.17
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+aiosqlite==0.20.0        # SQLite (dev)
+asyncpg==0.30.0          # PostgreSQL (prod)
+
+# Config
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+
+# Cloud processing
+google-generativeai==0.8.3
+Pillow==11.0.0
