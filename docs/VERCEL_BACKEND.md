@@ -1,7 +1,9 @@
 # Vercel backend migration
 
-Status: migration in progress. The existing frontend still uses its configured
-backend tunnel; the cloud backend has not been provisioned or deployed yet.
+Status: code and cloud database verified. The free `idps-cloud-postgres` Neon
+database is provisioned in Singapore and migrations have been applied over TLS.
+The backend Vercel deployment is awaiting approval to import its private environment
+variables. The existing frontend still uses its configured backend tunnel.
 
 ## Implemented
 
@@ -25,15 +27,21 @@ backend tunnel; the cloud backend has not been provisioned or deployed yet.
 
 ## Still required before deployment
 
-1. Complete the account-security prompt in Vercel.
-2. Provision a free cloud PostgreSQL database and connect its secret URL.
-3. Create a separate Vercel backend project with root directory `backend`.
-4. Set private environment variables, run migrations, deploy, verify login and a
+1. Approve importing the existing Gemini key, admin credentials and Neon URL as
+   private environment variables into the `idps-backend` Vercel project.
+2. Deploy the prepared FastAPI project with root directory `backend`.
+3. Verify login and a
    synthetic upload, and only then replace the frontend tunnel rewrites.
 
 Vercel installs the lightweight dependencies from `backend/pyproject.toml` and
 runs `alembic upgrade head` before deployment. Local EasyOCR and Docker installs
 use `requirements-local.txt`; development dependencies include that file.
+
+Validation completed: 18 tests passed against a disposable PostgreSQL database,
+including upgrade/schema comparison/downgrade and legacy import compatibility.
+The approved new Neon database and a real Gemini call were also tested together
+using a generated synthetic invoice; only that synthetic document was deleted.
+Existing local documents have not been migrated.
 
 ## Planned private environment
 
