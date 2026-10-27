@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   Check,
@@ -33,6 +33,17 @@ export default function ExtractPage() {
   const input = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const cache = useQueryClient();
+  const limits = useQuery({
+    queryKey: ["upload-limits"],
+    /** Read runtime limits. @returns Upload capability. @throws Error when API is unavailable. */
+    queryFn: async (): Promise<{ max_upload_size_mb: number }> => {
+      const response = await fetch("/health", { signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error("Backend unavailable");
+      return response.json();
+    },
+    staleTime: 60000,
+  });
+  const maxUploadMB = limits.data?.max_upload_size_mb ?? 4;
   const job = useJob(active?.job_id);
   const upload = useMutation({
     mutationFn: uploadDocument,
@@ -59,8 +70,8 @@ export default function ExtractPage() {
       );
       return;
     }
-    if (candidate.size > 20 * 1024 * 1024 || candidate.size === 0) {
-      setValidation("Choose a nonempty image up to 20 MB.");
+    if (candidate.size > maxUploadMB * 1024 * 1024 || candidate.size === 0) {
+      setValidation(`Choose a nonempty image up to ${maxUploadMB} MB.`);
       return;
     }
     setPreview(URL.createObjectURL(candidate));
@@ -279,7 +290,7 @@ export default function ExtractPage() {
                     <span>BMP</span>
                     <span>TIFF</span>
                   </span>
-                  <small>Maximum file size: 20 MB</small>
+                  <small>Maximum file size: {maxUploadMB} MB</small>
                 </button>
               )}
               {validation && <ErrorState error={new Error(validation)} />}
@@ -291,14 +302,14 @@ export default function ExtractPage() {
                   disabled={!file || busy}
                   onClick={() => file && upload.mutate(file)}
                 >
-                  {upload.isPending ? "Uploading…" : "Extract information"}
+                  {upload.isPending ? "Uploading and processing…" : "Extract information"}
                   <ArrowRight size={17} />
                 </button>
               </div>
             </>
           )}
           <p className="privacy-note">
-            Files are stored in your workspace. Extracted text is sent to Gemini
+            Files are stored in your workspace. Document content is sent to Gemini
             for AI processing. Upload only documents you are authorized to
             process.
           </p>

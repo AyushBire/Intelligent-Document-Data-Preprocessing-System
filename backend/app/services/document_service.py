@@ -66,7 +66,12 @@ def _normalize_type(document_type: str) -> str:
     return document_type.strip().lower().replace(" ", "_")
 
 
-async def create_document(db: AsyncSession, data: DocumentCreate) -> Document:
+async def create_document(db: AsyncSession, data: DocumentCreate, *, commit: bool = True) -> Document:
+    """Create a document and its type-specific fields.
+
+    Args: db: Transaction; data: Extracted fields; commit: Commit here or let caller persist related rows atomically.
+    Returns: Document. Raises: Database errors on failed validation or writes.
+    """
     raw_json = json.dumps(data.structured_data, ensure_ascii=False)
 
     doc = Document(
@@ -82,7 +87,8 @@ async def create_document(db: AsyncSession, data: DocumentCreate) -> Document:
 
     _attach_child(db, doc.id, data.document_type, data.structured_data)
 
-    await db.commit()
+    if commit:
+        await db.commit()
     await db.refresh(doc)
     logger.info(f"Created document id={doc.id} type={doc.document_type}")
     return doc

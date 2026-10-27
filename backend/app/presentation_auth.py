@@ -3,6 +3,7 @@ import base64
 import binascii
 import hashlib
 import secrets
+import inspect
 
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -45,9 +46,13 @@ class PresentationAuthMiddleware:
         Args: scope: Request scope; receive: Incoming events; send: Outgoing events.
         Returns: None. Raises: Downstream application errors.
         """
-        if self.session_check and self.session_check(scope):
-            await self.app(scope, receive, send)
-            return
+        if scope["type"] in {"http", "websocket"} and self.session_check:
+            authorized = self.session_check(scope)
+            if inspect.isawaitable(authorized):
+                authorized = await authorized
+            if authorized:
+                await self.app(scope, receive, send)
+                return
         if scope.get("path") in {"/api/auth/session", "/api/auth/login", "/api/auth/logout"}:
             await self.app(scope, receive, send)
             return

@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 
@@ -8,11 +9,12 @@ settings = get_settings()
 _is_sqlite = settings.database_url.get_backend_name() == "sqlite"
 
 engine = create_async_engine(
-    settings.database_url,
+    settings.database_url.difference_update_query(["sslmode", "channel_binding"]) if settings.SERVERLESS_MODE else settings.database_url,
     echo=settings.DEBUG,
     pool_pre_ping=True,
     # check_same_thread is SQLite-only; asyncpg rejects it
-    **({"connect_args": {"check_same_thread": False}} if _is_sqlite else {}),
+    **({"connect_args": {"check_same_thread": False}} if _is_sqlite else
+       {"poolclass": NullPool, "connect_args": {"ssl": True, "statement_cache_size": 0}} if settings.SERVERLESS_MODE else {}),
 )
 
 AsyncSessionLocal = async_sessionmaker(

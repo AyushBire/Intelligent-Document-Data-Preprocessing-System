@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "idps"
     POSTGRES_PASSWORD: SecretStr | None = None
     AUTO_CREATE_TABLES: bool = False
+    SERVERLESS_MODE: bool = False
 
     # Gemini
     GEMINI_API_KEY: str
@@ -50,6 +51,12 @@ class Settings(BaseSettings):
         """
         if self.PRESENTATION_AUTH_ENABLED and (not self.PRESENTATION_PASSWORD or not self.PRESENTATION_PASSWORD.get_secret_value()):
             raise ValueError("Set PRESENTATION_PASSWORD before enabling presentation authentication.")
+        if self.SERVERLESS_MODE and (not self.PRESENTATION_AUTH_ENABLED or self.PRELOAD_MODELS or self.MAX_UPLOAD_SIZE_MB > 4):
+            raise ValueError("Serverless mode requires authentication, PRELOAD_MODELS=false and MAX_UPLOAD_SIZE_MB<=4.")
+        if self.SERVERLESS_MODE and self.database_url.get_backend_name() != "postgresql":
+            raise ValueError("Serverless deployment requires cloud PostgreSQL.")
+        if self.SERVERLESS_MODE and self.database_url.host in {"localhost", "127.0.0.1", "::1", "postgres"}:
+            raise ValueError("Serverless deployment requires a publicly reachable cloud database host.")
         return self
 
     model_config = SettingsConfigDict(

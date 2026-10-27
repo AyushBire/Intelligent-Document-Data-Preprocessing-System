@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db import Base, engine
 from app.presentation_auth import PresentationAuthMiddleware
 from app.api.auth import auth_router
+from app.api.cloud_auth import cloud_auth_router
 from app.services.pipeline_service import preload_pipeline
 
 # Configure logging ONCE, here. Do not call basicConfig in other modules.
@@ -61,7 +62,7 @@ app.add_middleware(
 )
 
 credential_check = PresentationAuthMiddleware(app, settings.PRESENTATION_USERNAME, settings.PRESENTATION_PASSWORD.get_secret_value()) if settings.PRESENTATION_AUTH_ENABLED else None
-session_router = auth_router(credential_check)
+session_router = cloud_auth_router(credential_check) if settings.SERVERLESS_MODE else auth_router(credential_check)
 app.include_router(session_router)
 if credential_check:
     app.add_middleware(PresentationAuthMiddleware, username=settings.PRESENTATION_USERNAME,

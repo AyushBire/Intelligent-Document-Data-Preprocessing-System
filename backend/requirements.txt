@@ -1,6 +1,6 @@
 # Web
 fastapi==0.115.5
-uvicorn[standard]==0.32.1
+uvicorn==0.32.1
 python-multipart==0.0.17
 
 # Database
@@ -13,8 +13,6 @@ asyncpg==0.30.0          # PostgreSQL (prod)
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
 
-# Processing (torch/torchvision are installed separately as CPU wheels in the Dockerfile)
-easyocr==1.7.2
-opencv-python-headless==4.10.0.84
-numpy==1.26.4
+# Cloud processing
 google-generativeai==0.8.3
+Pillow==11.0.0

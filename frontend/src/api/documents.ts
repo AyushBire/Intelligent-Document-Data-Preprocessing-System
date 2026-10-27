@@ -19,6 +19,7 @@ export const uploadDocument = async (file: File): Promise<UploadResponse> => {
     form,
     {
       headers: { "Content-Type": "multipart/form-data" },
+      timeout: 240000,
     },
   );
   return data;

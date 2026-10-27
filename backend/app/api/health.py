@@ -12,7 +12,9 @@ settings = get_settings()
 @router.get("/health")
 async def health():
     """Liveness — the process is up."""
-    return {"status": "ok", "version": settings.APP_VERSION}
+    return {"status": "ok", "version": settings.APP_VERSION,
+            "max_upload_size_mb": settings.MAX_UPLOAD_SIZE_MB,
+            "processing_mode": "cloud" if settings.SERVERLESS_MODE else "local"}
 
 
 @router.get("/health/ready")

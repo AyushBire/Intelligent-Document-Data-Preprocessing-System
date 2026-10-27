@@ -1,0 +1,8 @@
+.env
+.env.*
+uploads
+uploads_postgres
+tests
+**/__pycache__
+**/*.db
+**/*.sqlite3

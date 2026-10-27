@@ -10,6 +10,9 @@ from app.db import Base
 
 target_metadata = Base.metadata
 url = get_settings().database_url
+serverless = get_settings().SERVERLESS_MODE
+if serverless:
+    url = url.difference_update_query(["sslmode", "channel_binding"])
 is_sqlite = url.get_backend_name() == "sqlite"
 
 
@@ -42,7 +45,8 @@ def _do_run_migrations(connection) -> None:
 
 async def run_migrations_online() -> None:
     """Apply migrations transactionally. Returns: None. Raises: Database errors."""
-    engine = create_async_engine(url, poolclass=pool.NullPool)
+    engine = create_async_engine(url, poolclass=pool.NullPool,
+                                 **({"connect_args": {"ssl": True, "statement_cache_size": 0}} if serverless else {}))
     async with engine.connect() as connection:
         await connection.run_sync(_do_run_migrations)
     await engine.dispose()

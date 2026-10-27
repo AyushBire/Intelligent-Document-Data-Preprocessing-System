@@ -9,10 +9,17 @@ from pathlib import Path
 from sqlalchemy import Boolean, DateTime, func, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.exc import SQLAlchemyError
+from alembic.script import ScriptDirectory
 
 import app.models  # noqa: F401
 from app.config import get_settings
 from app.db import Base
+
+LEGACY_TABLE_NAMES = {
+    "documents", "invoices", "receipts", "aadhaar_cards", "pan_cards", "passports",
+    "driving_licenses", "bank_statements", "generic_documents", "document_confirmations",
+}
+LEGACY_TABLES = tuple(table for table in Base.metadata.sorted_tables if table.name in LEGACY_TABLE_NAMES)
 
 
 def snapshot(source: Path, backup: Path) -> dict[str, int]:
@@ -33,7 +40,7 @@ def snapshot(source: Path, backup: Path) -> dict[str, int]:
         if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise ValueError("SQLite integrity check failed.")
         counts = {}
-        for table in Base.metadata.sorted_tables:
+        for table in LEGACY_TABLES:
             columns = {row[1] for row in copy.execute(f'PRAGMA table_info("{table.name}")')}
             if not set(table.columns.keys()).issubset(columns):
                 raise ValueError(f"Incompatible source schema: {table.name}")
@@ -57,14 +64,15 @@ async def import_database(backup: Path, source_uploads: Path | None, dry_run: bo
         with sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True) as source:
             source.row_factory = sqlite3.Row
             async with engine.begin() as target:
-                if (await target.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() != "0001_initial":
+                head = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "alembic")).get_current_head()
+                if (await target.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() != head:
                     raise ValueError("Run alembic upgrade head before importing.")
                 names = ', '.join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
                 await target.execute(text(f"LOCK TABLE {names} IN ACCESS EXCLUSIVE MODE"))
                 for table in Base.metadata.sorted_tables:
                     if (await target.execute(select(func.count()).select_from(table))).scalar_one():
                         raise ValueError("Destination is not empty; import refuses to overwrite or merge records.")
-                for table in Base.metadata.sorted_tables:
+                for table in LEGACY_TABLES:
                     cursor = source.execute(f'SELECT * FROM "{table.name}" ORDER BY id')
                     counts[table.name] = 0
                     while batch := cursor.fetchmany(500):

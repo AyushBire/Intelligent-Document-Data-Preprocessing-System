@@ -10,6 +10,7 @@ from app.api.ws import broadcast_job
 from app.config import get_settings
 from app.db import AsyncSessionLocal, get_db
 from app.models.document import Document
+from app.models.cloud import DocumentFile
 from app.schemas.document import (
     ConfirmationCreate,
     ConfirmationResponse,
@@ -94,6 +95,15 @@ async def upload_document(
     # The original name is only a display label; never used as a path
     original_name = Path(file.filename or f"upload{ext}").name[:255]
 
+    if settings.SERVERLESS_MODE:
+        from app.services.cloud_processing import process_upload
+        job_id = str(uuid.uuid4())
+        try:
+            await process_upload(contents, original_name, job_id)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"job_id": job_id, "filename": original_name}
+
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
     dest = upload_dir / f"{uuid.uuid4().hex}{ext}"
@@ -135,7 +145,11 @@ async def upload_document(
 
 @router.get("/jobs/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str):
-    job = get_job(job_id)
+    if settings.SERVERLESS_MODE:
+        from app.services.cloud_jobs import get_cloud_job
+        job = await get_cloud_job(job_id)
+    else:
+        job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -190,6 +204,12 @@ async def get_document_file(document_id: int, db: AsyncSession = Depends(get_db)
     doc = await svc.get_document(db, document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    if doc.file_path.startswith("postgres://"):
+        stored = await db.get(DocumentFile, document_id)
+        if not stored:
+            raise HTTPException(status_code=404, detail="Source image is unavailable")
+        return Response(stored.content, media_type=stored.media_type, headers={
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
     path = Path(doc.file_path).resolve()
     root = Path(settings.UPLOAD_DIR).resolve()
     media = {".jpg": "image/jpeg", ".png": "image/png", ".bmp": "image/bmp", ".tiff": "image/tiff"}
@@ -217,7 +237,7 @@ async def delete_document(document_id: int, db: AsyncSession = Depends(get_db)):
     if file_path is None:
         raise HTTPException(status_code=404, detail="Document not found")
     # Remove the stored upload too — no orphaned PII on disk
-    if file_path:
+    if file_path and not file_path.startswith("postgres://"):
         Path(file_path).unlink(missing_ok=True)
 
 
@@ -228,7 +248,7 @@ async def bulk_delete(
 ):
     for doc_id in ids:
         file_path = await svc.delete_document(db, doc_id)
-        if file_path:
+        if file_path and not file_path.startswith("postgres://"):
             Path(file_path).unlink(missing_ok=True)
 
 
