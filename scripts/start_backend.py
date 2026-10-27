@@ -83,6 +83,19 @@ def current_origin() -> str | None:
     return None
 
 
+def configured_cloud_origin() -> str | None:
+    """Detect a permanently hosted backend without changing deployment settings.
+
+    Returns: Configured Vercel backend origin or None. Raises: File or JSON errors.
+    """
+    config = json.loads((ROOT / "frontend/vercel.json").read_text(encoding="utf-8"))
+    for rule in config.get("rewrites", []):
+        if rule.get("source") == "/api/:path*":
+            match = re.fullmatch(r"(https://[a-z0-9-]+\.vercel\.app)/api/:path\*", rule.get("destination", ""))
+            return match.group(1) if match else None
+    return None
+
+
 def wait_for_tunnel(process: subprocess.Popen) -> str:
     """Read the new origin from cloudflared and wait for connectivity.
 
@@ -153,6 +166,13 @@ def start(no_deploy: bool) -> None:
     """
     if os.name != "nt":
         raise RuntimeError("This launcher uses the project's Windows presentation runtime.")
+    cloud_origin = configured_cloud_origin()
+    if cloud_origin:
+        if not health_ok(cloud_origin):
+            raise RuntimeError("The cloud backend is unreachable. Check Vercel; the hosted connection was left unchanged.")
+        print("The backend is hosted on Vercel. No laptop services or tunnel are required.", flush=True)
+        print(f"Sign in: {LIVE_URL}/signin", flush=True)
+        return
     validate_files()
     if not no_deploy:
         prepare_git()
