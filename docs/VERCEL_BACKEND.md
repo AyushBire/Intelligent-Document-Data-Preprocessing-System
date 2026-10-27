@@ -1,9 +1,9 @@
 # Vercel backend migration
 
-Status: code and cloud database verified. The free `idps-cloud-postgres` Neon
-database is provisioned in Singapore and migrations have been applied over TLS.
-The backend Vercel deployment is awaiting approval to import its private environment
-variables. The existing frontend still uses its configured backend tunnel.
+Status: backend deployed at https://idps-backend.vercel.app. The frontend proxy
+uses this permanent backend. The free `idps-cloud-postgres` Neon database is in
+Singapore, and migrations were applied over TLS. Private credentials are stored
+in the `idps-backend` Vercel project environment. No laptop tunnel is required.
 
 ## Implemented
 
@@ -25,13 +25,12 @@ variables. The existing frontend still uses its configured backend tunnel.
 - The frontend reads runtime upload limits and allows time for cloud processing.
 - New cloud uploads were approved by the user; existing local records stay local.
 
-## Still required before deployment
+## Deployment configuration
 
-1. Approve importing the existing Gemini key, admin credentials and Neon URL as
-   private environment variables into the `idps-backend` Vercel project.
-2. Deploy the prepared FastAPI project with root directory `backend`.
-3. Verify login and a
-   synthetic upload, and only then replace the frontend tunnel rewrites.
+The separate Vercel backend project uses root directory `backend`, the FastAPI
+preset and region `sin1`. GitHub `main` triggers deployments. The frontend
+project retains root directory `frontend` and proxies API and health requests to
+the backend domain. The private variables listed below must exist before builds.
 
 Vercel installs the lightweight dependencies from `backend/pyproject.toml` and
 runs `alembic upgrade head` before deployment. Local EasyOCR and Docker installs
@@ -43,7 +42,7 @@ The approved new Neon database and a real Gemini call were also tested together
 using a generated synthetic invoice; only that synthetic document was deleted.
 Existing local documents have not been migrated.
 
-## Planned private environment
+## Private backend environment
 
 ```dotenv
 SERVERLESS_MODE=true

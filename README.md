@@ -2,10 +2,14 @@
 
 IDPS is a React and FastAPI workspace for extracting structured information from document images, reviewing the results, and exporting JSON, CSV and text reports. It preserves the existing OpenCV → EasyOCR → Gemini pipeline.
 
+Live website: https://intelligent-document-data-preproces.vercel.app/signin
+
+Hosted API: https://idps-backend.vercel.app � no laptop backend or tunnel required. See [cloud deployment details](docs/VERCEL_BACKEND.md).
+
 ## Features
 
-- Browse, drop or paste JPG, PNG, BMP and TIFF images up to 20 MB. PDF is not supported.
-- Preview before extraction and follow real processing progress.
+- Browse, drop or paste JPG, PNG, BMP and TIFF images up to 4 MB on the hosted site (20 MB in local mode). PDF is not supported.
+- Preview before extraction and review processing status and completed results.
 - Review fields, nested JSON, summaries, source images and raw OCR text.
 - Edit extracted fields and summaries; export JSON, CSV and TXT.
 - Search, filter, paginate and delete documents with confirmation.
